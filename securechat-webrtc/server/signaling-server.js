@@ -1,4 +1,4 @@
-// server/signaling-server.js
+// server/signaling-server.js - VERSION CORRIGÉE pour éviter les conflits
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -7,7 +7,7 @@ const cors = require('cors');
 const app = express();
 const server = http.createServer(app);
 
-// Configuration CORS pour le développement
+// Configuration CORS pour accepter toutes les connexions
 app.use(cors({
   origin: true, // Accepter toutes les origines pour le développement
   methods: ["GET", "POST"],
@@ -22,17 +22,17 @@ const io = socketIo(server, {
   }
 });
 
-// Stockage des utilisateurs connectés
+// Stockage des utilisateurs et des rooms
 const connectedUsers = new Map();
-const rooms = new Map();
+const activeConnections = new Map(); // Pour gérer les connexions P2P actives
 
-// Route de santé pour vérifier que le serveur fonctionne
+// Route de santé
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
     connectedUsers: connectedUsers.size,
-    rooms: rooms.size
+    activeConnections: activeConnections.size
   });
 });
 
@@ -50,40 +50,54 @@ io.on('connection', (socket) => {
       joinedAt: new Date()
     });
 
-    // Rejoindre une room générique (pour simplifier la démo)
+    // Rejoindre une room générique
     const roomName = 'general';
     socket.join(roomName);
 
-    if (!rooms.has(roomName)) {
-      rooms.set(roomName, new Set());
+    // Informer seulement s'il y a moins de 3 utilisateurs (éviter le spam)
+    if (connectedUsers.size <= 3) {
+      socket.to(roomName).emit('user-joined', username);
     }
-    rooms.get(roomName).add(socket.id);
-
-    // Notifier les autres utilisateurs
-    socket.to(roomName).emit('user-joined', username);
     
-    // Envoyer les stats de connexion
-    socket.emit('connection-stats', {
-      totalUsers: connectedUsers.size,
-      roomUsers: rooms.get(roomName)?.size || 0
-    });
+    console.log(`Total utilisateurs: ${connectedUsers.size}`);
   });
 
-  // Transmission d'une offre WebRTC
+  // Transmission d'une offre WebRTC - AVEC GESTION DES CONFLITS
   socket.on('offer', (data) => {
-    console.log(`[${new Date().toISOString()}] Offre de ${data.from} vers ${data.to}`);
+    console.log(`[${new Date().toISOString()}] Offre de ${data.from}`);
     
-    // Pour cette démo simple, on broadcast à tous les autres dans la room
-    socket.to('general').emit('offer', {
-      offer: data.offer,
-      from: data.from
-    });
+    // Vérifier s'il n'y a pas déjà une connexion active
+    const connectionKey = [data.from, 'partner'].sort().join('-');
+    
+    if (!activeConnections.has(connectionKey)) {
+      activeConnections.set(connectionKey, {
+        initiator: data.from,
+        timestamp: Date.now()
+      });
+      
+      // Envoyer seulement au premier autre utilisateur dans la room
+      const roomSockets = Array.from(io.sockets.adapter.rooms.get('general') || []);
+      const otherSockets = roomSockets.filter(id => id !== socket.id);
+      
+      if (otherSockets.length > 0) {
+        // Prendre seulement le premier autre utilisateur
+        const targetSocket = otherSockets[0];
+        io.to(targetSocket).emit('offer', {
+          offer: data.offer,
+          from: data.from
+        });
+        console.log(`Offre envoyée spécifiquement à ${targetSocket}`);
+      }
+    } else {
+      console.log(`Connexion déjà active pour ${connectionKey}, offre ignorée`);
+    }
   });
 
   // Transmission d'une réponse WebRTC
   socket.on('answer', (data) => {
-    console.log(`[${new Date().toISOString()}] Réponse de ${data.from} vers ${data.to}`);
+    console.log(`[${new Date().toISOString()}] Réponse de ${data.from}`);
     
+    // Envoyer la réponse à celui qui a initié
     socket.to('general').emit('answer', {
       answer: data.answer,
       from: data.from
@@ -92,7 +106,7 @@ io.on('connection', (socket) => {
 
   // Transmission des candidats ICE
   socket.on('ice-candidate', (data) => {
-    console.log(`[${new Date().toISOString()}] Candidat ICE de ${socket.username}`);
+    console.log(`[${new Date().toISOString()}] Candidat ICE`);
     
     socket.to('general').emit('ice-candidate', {
       candidate: data.candidate,
@@ -100,20 +114,10 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Signal de présence (pour l'indicateur "en train de taper")
-  socket.on('typing-start', () => {
-    socket.to('general').emit('user-typing-start', socket.username);
-  });
-
-  socket.on('typing-stop', () => {
-    socket.to('general').emit('user-typing-stop', socket.username);
-  });
-
-  // Message d'urgence (bypass WebRTC si nécessaire)
+  // Message d'urgence (bypass WebRTC)
   socket.on('emergency-message', (data) => {
-    console.log(`[${new Date().toISOString()}] 🚨 MESSAGE D'URGENCE de ${socket.username}: ${data.text}`);
+    console.log(`[${new Date().toISOString()}] 🚨 URGENCE de ${socket.username}: ${data.text}`);
     
-    // Broadcast immédiat via le serveur pour garantir la livraison
     socket.to('general').emit('emergency-received', {
       text: data.text,
       from: socket.username,
@@ -126,21 +130,21 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`[${new Date().toISOString()}] Déconnexion: ${socket.id} (${socket.username || 'Anonyme'})`);
     
-    // Nettoyer les données utilisateur
-    connectedUsers.delete(socket.id);
-    
-    // Nettoyer les rooms
-    for (let [roomName, users] of rooms.entries()) {
-      if (users.has(socket.id)) {
-        users.delete(socket.id);
-        if (users.size === 0) {
-          rooms.delete(roomName);
-        } else {
-          // Notifier les autres de la déconnexion
-          socket.to(roomName).emit('user-left', socket.username);
+    // Nettoyer les connexions actives
+    if (socket.username) {
+      for (let [key, connection] of activeConnections.entries()) {
+        if (key.includes(socket.username)) {
+          activeConnections.delete(key);
+          console.log(`Connexion ${key} nettoyée`);
         }
       }
     }
+    
+    // Nettoyer les utilisateurs connectés
+    connectedUsers.delete(socket.id);
+    
+    // Notifier les autres de la déconnexion
+    socket.to('general').emit('user-left', socket.username);
   });
 
   // Gestion des erreurs
@@ -149,27 +153,30 @@ io.on('connection', (socket) => {
   });
 });
 
-// Gestion globale des erreurs
-process.on('uncaughtException', (err) => {
-  console.error('Erreur non gérée:', err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Rejection non gérée:', reason);
-});
+// Nettoyage périodique des connexions inactives
+setInterval(() => {
+  const now = Date.now();
+  for (let [key, connection] of activeConnections.entries()) {
+    // Supprimer les connexions de plus de 30 secondes
+    if (now - connection.timestamp > 30000) {
+      activeConnections.delete(key);
+      console.log(`Connexion expirée supprimée: ${key}`);
+    }
+  }
+}, 10000);
 
 // Statistiques périodiques
 setInterval(() => {
   const stats = {
     timestamp: new Date().toISOString(),
     connectedUsers: connectedUsers.size,
-    rooms: rooms.size,
-    uptime: process.uptime()
+    activeConnections: activeConnections.size,
+    uptime: Math.floor(process.uptime())
   };
   console.log(`[STATS] ${JSON.stringify(stats)}`);
-}, 30000); // Toutes les 30 secondes
+}, 30000);
 
-// Démarrage du serveur
+// Démarrage du serveur sur toutes les interfaces
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`
@@ -177,7 +184,7 @@ server.listen(PORT, '0.0.0.0', () => {
 ║          🛡️  SERVEUR DE SIGNALISATION        ║
 ║                                              ║
 ║  Port: ${PORT}                                  ║
-║  URL:  http://localhost:${PORT}                ║
+║  Interface: 0.0.0.0 (toutes)                 ║
 ║  Health: http://localhost:${PORT}/health       ║
 ║                                              ║
 ║  🔐 Serveur sécurisé pour SecureLink         ║
@@ -185,5 +192,4 @@ server.listen(PORT, '0.0.0.0', () => {
   `);
 });
 
-// Export pour les tests
 module.exports = { app, server, io };

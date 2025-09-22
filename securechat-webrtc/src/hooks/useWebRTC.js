@@ -1,4 +1,4 @@
-// src/hooks/useWebRTC.js - VERSION CORRIGÉE
+// src/hooks/useWebRTC.js - VERSION COMPLÈTE CORRIGÉE
 import { useState, useEffect, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
 
@@ -104,6 +104,13 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
             updateConnectionStatus('error');
             setIsConnected(false);
             setError('Connexion échouée');
+            // Tentative de reconnexion automatique
+            setTimeout(() => {
+              if (pc.connectionState === 'failed') {
+                console.log('Tentative de reconnexion automatique...');
+                reconnect();
+              }
+            }, 5000);
             break;
           case 'closed':
             updateConnectionStatus('disconnected');
@@ -125,7 +132,7 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       updateConnectionStatus('error');
       return null;
     }
-  }, [setupDataChannel, updateConnectionStatus]); // Dépendances stables
+  }, [setupDataChannel, updateConnectionStatus, partnerName]); // Dépendances stables
 
   // Envoi d'un message
   const sendMessage = useCallback((text, type = 'text') => {
@@ -153,10 +160,16 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
     }
   }, [username]);
 
-  // Création d'une offre
+  // Création d'une offre - VERSION CORRIGÉE
   const createOffer = useCallback(async () => {
     if (!peerConnectionRef.current || !socketRef.current?.connected) {
       console.error('PeerConnection ou Socket non disponible');
+      return;
+    }
+
+    // Vérifier l'état avant de créer l'offre
+    if (peerConnectionRef.current.signalingState !== 'stable') {
+      console.log(`Création d'offre ignorée - État: ${peerConnectionRef.current.signalingState}`);
       return;
     }
 
@@ -189,56 +202,74 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
     }
   }, [username, setupDataChannel, updateConnectionStatus]);
 
-  // Traitement d'une offre reçue
+  // Traitement d'une offre reçue - VERSION CORRIGÉE
   const handleOffer = useCallback(async (offer, from) => {
     if (!peerConnectionRef.current || !socketRef.current?.connected) return;
 
     try {
-      console.log(`Traitement de l'offre de ${from}`);
+      // Vérifier l'état avant de traiter l'offre
+      if (peerConnectionRef.current.signalingState !== 'stable') {
+        console.log(`Offre ignorée - État incorrect: ${peerConnectionRef.current.signalingState}`);
+        return;
+      }
+
+      console.log(`Traitement de l'offre de ${from} - État: ${peerConnectionRef.current.signalingState}`);
       setPartnerName(from);
       
       await peerConnectionRef.current.setRemoteDescription(offer);
       
-      // Créer la réponse
-      const answer = await peerConnectionRef.current.createAnswer();
-      await peerConnectionRef.current.setLocalDescription(answer);
+      // Vérifier à nouveau l'état avant de créer la réponse
+      if (peerConnectionRef.current.signalingState === 'have-remote-offer') {
+        const answer = await peerConnectionRef.current.createAnswer();
+        await peerConnectionRef.current.setLocalDescription(answer);
 
-      // Envoyer la réponse
-      socketRef.current.emit('answer', {
-        answer,
-        from: username,
-        to: from
-      });
-      
-      console.log('Réponse envoyée');
+        // Envoyer la réponse
+        socketRef.current.emit('answer', {
+          answer,
+          from: username,
+          to: from
+        });
+        
+        console.log('Réponse envoyée avec succès');
+      } else {
+        console.log(`État incorrect pour créer une réponse: ${peerConnectionRef.current.signalingState}`);
+      }
     } catch (err) {
       console.error('Erreur traitement offre:', err);
-      setError('Erreur de connexion');
-      updateConnectionStatus('error');
+      // Ne pas changer le statut en erreur pour cette erreur spécifique
     }
-  }, [username, updateConnectionStatus]);
+  }, [username]);
 
-  // Traitement d'une réponse reçue
+  // Traitement d'une réponse reçue - VERSION CORRIGÉE
   const handleAnswer = useCallback(async (answer) => {
     if (!peerConnectionRef.current) return;
 
     try {
-      console.log('Traitement de la réponse');
-      await peerConnectionRef.current.setRemoteDescription(answer);
+      // Vérifier l'état avant d'appliquer la réponse
+      if (peerConnectionRef.current.signalingState === 'have-local-offer') {
+        console.log('Traitement de la réponse - État valide');
+        await peerConnectionRef.current.setRemoteDescription(answer);
+      } else {
+        console.log(`Réponse ignorée - État incorrect: ${peerConnectionRef.current.signalingState}`);
+      }
     } catch (err) {
       console.error('Erreur traitement réponse:', err);
-      setError('Erreur de connexion');
-      updateConnectionStatus('error');
+      // Ne pas changer le statut en erreur pour cette erreur spécifique
     }
-  }, [updateConnectionStatus]);
+  }, []);
 
   // Traitement des candidats ICE
   const handleIceCandidate = useCallback(async (candidate) => {
     if (!peerConnectionRef.current) return;
 
     try {
-      await peerConnectionRef.current.addIceCandidate(candidate);
-      console.log('Candidat ICE ajouté');
+      // Vérifier que la description distante est définie
+      if (peerConnectionRef.current.remoteDescription) {
+        await peerConnectionRef.current.addIceCandidate(candidate);
+        console.log('Candidat ICE ajouté');
+      } else {
+        console.log('Candidat ICE ignoré - Pas de description distante');
+      }
     } catch (err) {
       console.error('Erreur ajout candidat ICE:', err);
     }
@@ -259,12 +290,14 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
 
       console.log('Connexion au serveur de signalisation...');
 
-      // Connexion au serveur de signalisation
+      // Obtenir l'URL du serveur depuis l'environnement
       const serverUrl = process.env.REACT_APP_SERVER_URL || 'http://localhost:3001';
-      socketRef.current = io(serverUrl, {
+      console.log('URL du serveur:', serverUrl);
 
+      // Connexion au serveur de signalisation
+      socketRef.current = io(serverUrl, {
         transports: ['websocket'],
-        timeout: 5000,
+        timeout: 10000,
         forceNew: true
       });
 
@@ -294,8 +327,14 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       socketRef.current.on('user-joined', (userName) => {
         console.log('Utilisateur rejoint:', userName);
         if (userName !== username && peerConnectionRef.current) {
-          // Démarrer la négociation après un délai
-          setTimeout(() => createOffer(), 2000);
+          // Démarrer la négociation après un délai, seulement si on n'a pas déjà une connexion
+          setTimeout(() => {
+            if (peerConnectionRef.current && 
+                peerConnectionRef.current.signalingState === 'stable' && 
+                !isInitiatorRef.current) {
+              createOffer();
+            }
+          }, 2000);
         }
       });
 
@@ -354,7 +393,7 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
     disconnect();
     setTimeout(() => {
       connect();
-    }, 1000);
+    }, 2000);
   }, [disconnect, connect]);
 
   // Nettoyage lors du démontage
