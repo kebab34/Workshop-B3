@@ -199,6 +199,15 @@
   margin: 0 0 0.5rem 0;
   color: #e0e0e0;
   font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.security-badge {
+  font-size: 0.8rem;
+  opacity: 0.8;
+  filter: drop-shadow(0 0 3px currentColor);
 }
 
 .channel-description {

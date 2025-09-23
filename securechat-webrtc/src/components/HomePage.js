@@ -1,6 +1,8 @@
 // src/components/HomePage.js
 import React, { useState, useEffect } from 'react';
 import MeshStatus from './MeshStatus';
+import CreateChannelModal from './CreateChannelModal';
+import JoinChannelModal from './JoinChannelModal';
 import { discoverMeshServers } from '../utils/networkDiscovery';
 import '../styles/HomePage.css';
 
@@ -48,6 +50,9 @@ function HomePage({ username, onJoinChannel }) {
   const [meshServers, setMeshServers] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [channelToJoin, setChannelToJoin] = useState(null);
 
   // Scanner les serveurs mesh disponibles
   const scanMeshNetwork = async () => {
@@ -68,29 +73,38 @@ function HomePage({ username, onJoinChannel }) {
   };
 
   // Rejoindre un canal
-  const handleJoinChannel = (channel) => {
+  const handleChannelClick = (channel) => {
+    if (channel.secure && channel.type !== 'public') {
+      // Canal protégé par mot de passe
+      setChannelToJoin(channel);
+      setShowJoinModal(true);
+    } else {
+      // Canal public, rejoindre directement
+      handleJoinChannel(channel);
+    }
+  };
+
+  const handleJoinChannel = (channel, password = null) => {
     setSelectedChannel(channel);
     // Animation de transition
     setTimeout(() => {
-      onJoinChannel(channel);
+      onJoinChannel(channel, password);
     }, 500);
   };
 
   // Créer un nouveau canal
-  const handleCreateChannel = () => {
-    const channelName = prompt('Nom du nouveau canal:');
-    if (channelName && channelName.trim()) {
-      const newChannel = {
-        id: `custom_${Date.now()}`,
-        name: channelName.trim(),
-        description: 'Canal personnalisé',
-        users: 1,
-        type: 'custom',
-        icon: '💬',
-        status: 'active'
-      };
+  const handleCreateChannel = async (channelData) => {
+    try {
+      // Ajouter le canal à la liste locale
+      setAvailableChannels(prev => [...prev, channelData]);
       
-      setAvailableChannels(prev => [...prev, newChannel]);
+      // Ici vous pouvez ajouter la logique pour sauvegarder sur le serveur
+      // await saveChannelToServer(channelData);
+      
+      console.log('Canal créé:', channelData);
+    } catch (error) {
+      console.error('Erreur création canal:', error);
+      throw error;
     }
   };
 
@@ -152,7 +166,7 @@ function HomePage({ username, onJoinChannel }) {
           <h3>Canaux Disponibles</h3>
           <button 
             className="create-channel-btn"
-            onClick={handleCreateChannel}
+            onClick={() => setShowCreateModal(true)}
             title="Créer un nouveau canal"
           >
             ➕ Nouveau Canal
@@ -164,12 +178,15 @@ function HomePage({ username, onJoinChannel }) {
             <div
               key={channel.id}
               className={`channel-card ${channel.type} ${selectedChannel?.id === channel.id ? 'selected' : ''}`}
-              onClick={() => handleJoinChannel(channel)}
+              onClick={() => handleChannelClick(channel)}
             >
               <div className="channel-header">
                 <span className="channel-icon">{channel.icon}</span>
                 <div className="channel-info">
-                  <h4 className="channel-name">{channel.name}</h4>
+                  <h4 className="channel-name">
+                    {channel.name}
+                    {channel.secure && <span className="security-badge">🔒</span>}
+                  </h4>
                   <p className="channel-description">{channel.description}</p>
                 </div>
               </div>
@@ -220,6 +237,25 @@ function HomePage({ username, onJoinChannel }) {
         </div>
       </div>
 
+      {/* Modals */}
+      <CreateChannelModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreateChannel={handleCreateChannel}
+        existingChannels={availableChannels}
+      />
+
+      <JoinChannelModal
+        isOpen={showJoinModal}
+        channel={channelToJoin}
+        onClose={() => {
+          setShowJoinModal(false);
+          setChannelToJoin(null);
+        }}
+        onJoinChannel={handleJoinChannel}
+        username={username}
+      />
+
       {/* Indicateur de transition */}
       {selectedChannel && (
         <div className="transition-overlay">
@@ -239,4 +275,4 @@ function HomePage({ username, onJoinChannel }) {
   );
 }
 
-export default HomePage;
+export default HomePage;    
