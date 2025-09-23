@@ -1,6 +1,7 @@
-// src/hooks/useWebRTC.js - VERSION COMPLÈTE CORRIGÉE
+// src/hooks/useWebRTC.js - VERSION MESH COMPLÈTE
 import { useState, useEffect, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
+import { getBestServer } from '../utils/networkDiscovery';
 
 const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -22,22 +23,22 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
     ],
   };
 
-  // Mise à jour du statut de connexion (avec useCallback stable)
+  // Mise à jour du statut de connexion
   const updateConnectionStatus = useCallback((status) => {
     setConnectionStatus(prevStatus => {
       if (prevStatus !== status) {
-        console.log(`Connection status changed: ${prevStatus} -> ${status}`);
+        console.log(`[MESH] Connection status: ${prevStatus} -> ${status}`);
         onConnectionStatusChange?.(status);
         return status;
       }
       return prevStatus;
     });
-  }, []); // Pas de dépendance sur onConnectionStatusChange pour éviter les boucles
+  }, []);
 
   // Configuration du data channel
   const setupDataChannel = useCallback((channel) => {
     channel.onopen = () => {
-      console.log('Data channel ouvert');
+      console.log('[MESH] Data channel ouvert');
       setIsConnected(true);
       updateConnectionStatus('connected');
     };
@@ -45,27 +46,27 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
     channel.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        console.log('Message reçu:', message);
+        console.log('[MESH] Message reçu:', message);
         onMessageReceived?.(message);
       } catch (err) {
-        console.error('Erreur parsing message:', err);
+        console.error('[MESH] Erreur parsing message:', err);
       }
     };
 
     channel.onclose = () => {
-      console.log('Data channel fermé');
+      console.log('[MESH] Data channel fermé');
       setIsConnected(false);
       updateConnectionStatus('disconnected');
     };
 
     channel.onerror = (error) => {
-      console.error('Erreur data channel:', error);
-      setError('Erreur de communication');
+      console.error('[MESH] Erreur data channel:', error);
+      setError('Erreur de communication mesh');
       updateConnectionStatus('error');
     };
 
     dataChannelRef.current = channel;
-  }, [updateConnectionStatus]); // updateConnectionStatus est stable grâce à useCallback
+  }, [updateConnectionStatus, onMessageReceived]);
 
   // Création du peer connection
   const createPeerConnection = useCallback(() => {
@@ -75,7 +76,7 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       // Gestion des candidats ICE
       pc.onicecandidate = (event) => {
         if (event.candidate && socketRef.current?.connected) {
-          console.log('Envoi candidat ICE');
+          console.log('[MESH] Envoi candidat ICE');
           socketRef.current.emit('ice-candidate', {
             candidate: event.candidate,
             to: partnerName || 'partner'
@@ -85,7 +86,7 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
 
       // Gestion de l'état de connexion
       pc.onconnectionstatechange = () => {
-        console.log('Connection state:', pc.connectionState);
+        console.log('[MESH] Connection state:', pc.connectionState);
         
         switch (pc.connectionState) {
           case 'connected':
@@ -103,11 +104,11 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
           case 'failed':
             updateConnectionStatus('error');
             setIsConnected(false);
-            setError('Connexion échouée');
+            setError('Connexion mesh échouée');
             // Tentative de reconnexion automatique
             setTimeout(() => {
               if (pc.connectionState === 'failed') {
-                console.log('Tentative de reconnexion automatique...');
+                console.log('[MESH] Tentative de reconnexion automatique...');
                 reconnect();
               }
             }, 5000);
@@ -127,17 +128,17 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
 
       return pc;
     } catch (err) {
-      console.error('Erreur création PeerConnection:', err);
-      setError('Erreur de création de connexion');
+      console.error('[MESH] Erreur création PeerConnection:', err);
+      setError('Erreur de création de connexion mesh');
       updateConnectionStatus('error');
       return null;
     }
-  }, [setupDataChannel, updateConnectionStatus, partnerName]); // Dépendances stables
+  }, [setupDataChannel, updateConnectionStatus, partnerName]);
 
   // Envoi d'un message
   const sendMessage = useCallback((text, type = 'text') => {
     if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
-      console.error('Canal de données non disponible');
+      console.error('[MESH] Canal de données non disponible');
       return false;
     }
 
@@ -151,30 +152,29 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       };
 
       dataChannelRef.current.send(JSON.stringify(message));
-      console.log('Message envoyé:', message);
+      console.log('[MESH] Message envoyé:', message);
       return true;
     } catch (err) {
-      console.error('Erreur envoi message:', err);
-      setError('Erreur d\'envoi');
+      console.error('[MESH] Erreur envoi message:', err);
+      setError('Erreur d\'envoi mesh');
       return false;
     }
   }, [username]);
 
-  // Création d'une offre - VERSION CORRIGÉE
+  // Création d'une offre
   const createOffer = useCallback(async () => {
     if (!peerConnectionRef.current || !socketRef.current?.connected) {
-      console.error('PeerConnection ou Socket non disponible');
+      console.error('[MESH] PeerConnection ou Socket non disponible');
       return;
     }
 
-    // Vérifier l'état avant de créer l'offre
     if (peerConnectionRef.current.signalingState !== 'stable') {
-      console.log(`Création d'offre ignorée - État: ${peerConnectionRef.current.signalingState}`);
+      console.log(`[MESH] Création d'offre ignorée - État: ${peerConnectionRef.current.signalingState}`);
       return;
     }
 
     try {
-      console.log('Création d\'une offre...');
+      console.log('[MESH] Création d\'une offre...');
       
       // Créer le data channel (côté initiateur)
       const dataChannel = peerConnectionRef.current.createDataChannel('messages', {
@@ -186,7 +186,7 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       const offer = await peerConnectionRef.current.createOffer();
       await peerConnectionRef.current.setLocalDescription(offer);
 
-      // Envoyer l'offre via le serveur de signalisation
+      // Envoyer l'offre via le serveur mesh
       socketRef.current.emit('offer', {
         offer,
         from: username,
@@ -194,67 +194,57 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       });
 
       isInitiatorRef.current = true;
-      console.log('Offre envoyée');
+      console.log('[MESH] Offre envoyée');
     } catch (err) {
-      console.error('Erreur création offre:', err);
-      setError('Erreur de connexion');
+      console.error('[MESH] Erreur création offre:', err);
+      setError('Erreur de connexion mesh');
       updateConnectionStatus('error');
     }
   }, [username, setupDataChannel, updateConnectionStatus]);
 
-  // Traitement d'une offre reçue - VERSION CORRIGÉE
+  // Traitement d'une offre reçue
   const handleOffer = useCallback(async (offer, from) => {
     if (!peerConnectionRef.current || !socketRef.current?.connected) return;
 
     try {
-      // Vérifier l'état avant de traiter l'offre
       if (peerConnectionRef.current.signalingState !== 'stable') {
-        console.log(`Offre ignorée - État incorrect: ${peerConnectionRef.current.signalingState}`);
+        console.log(`[MESH] Offre ignorée - État incorrect: ${peerConnectionRef.current.signalingState}`);
         return;
       }
 
-      console.log(`Traitement de l'offre de ${from} - État: ${peerConnectionRef.current.signalingState}`);
+      console.log(`[MESH] Traitement de l'offre de ${from}`);
       setPartnerName(from);
       
       await peerConnectionRef.current.setRemoteDescription(offer);
       
-      // Vérifier à nouveau l'état avant de créer la réponse
       if (peerConnectionRef.current.signalingState === 'have-remote-offer') {
         const answer = await peerConnectionRef.current.createAnswer();
         await peerConnectionRef.current.setLocalDescription(answer);
 
-        // Envoyer la réponse
         socketRef.current.emit('answer', {
           answer,
           from: username,
           to: from
         });
         
-        console.log('Réponse envoyée avec succès');
-      } else {
-        console.log(`État incorrect pour créer une réponse: ${peerConnectionRef.current.signalingState}`);
+        console.log('[MESH] Réponse envoyée');
       }
     } catch (err) {
-      console.error('Erreur traitement offre:', err);
-      // Ne pas changer le statut en erreur pour cette erreur spécifique
+      console.error('[MESH] Erreur traitement offre:', err);
     }
   }, [username]);
 
-  // Traitement d'une réponse reçue - VERSION CORRIGÉE
+  // Traitement d'une réponse reçue
   const handleAnswer = useCallback(async (answer) => {
     if (!peerConnectionRef.current) return;
 
     try {
-      // Vérifier l'état avant d'appliquer la réponse
       if (peerConnectionRef.current.signalingState === 'have-local-offer') {
-        console.log('Traitement de la réponse - État valide');
+        console.log('[MESH] Traitement de la réponse');
         await peerConnectionRef.current.setRemoteDescription(answer);
-      } else {
-        console.log(`Réponse ignorée - État incorrect: ${peerConnectionRef.current.signalingState}`);
       }
     } catch (err) {
-      console.error('Erreur traitement réponse:', err);
-      // Ne pas changer le statut en erreur pour cette erreur spécifique
+      console.error('[MESH] Erreur traitement réponse:', err);
     }
   }, []);
 
@@ -263,23 +253,19 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
     if (!peerConnectionRef.current) return;
 
     try {
-      // Vérifier que la description distante est définie
       if (peerConnectionRef.current.remoteDescription) {
         await peerConnectionRef.current.addIceCandidate(candidate);
-        console.log('Candidat ICE ajouté');
-      } else {
-        console.log('Candidat ICE ignoré - Pas de description distante');
+        console.log('[MESH] Candidat ICE ajouté');
       }
     } catch (err) {
-      console.error('Erreur ajout candidat ICE:', err);
+      console.error('[MESH] Erreur ajout candidat ICE:', err);
     }
   }, []);
 
-  // Connexion au serveur de signalisation
+  // Connexion au serveur mesh
   const connect = useCallback(async () => {
-    // Éviter les connexions multiples
     if (isConnectingRef.current || socketRef.current?.connected) {
-      console.log('Connexion déjà en cours ou établie');
+      console.log('[MESH] Connexion déjà en cours ou établie');
       return;
     }
 
@@ -288,13 +274,15 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       updateConnectionStatus('connecting');
       setError(null);
 
-      console.log('Connexion au serveur de signalisation...');
+      console.log('[MESH] Découverte du serveur mesh...');
 
-      // Obtenir l'URL du serveur depuis l'environnement
-      const serverUrl = process.env.REACT_APP_SERVER_URL || 'http://localhost:3001';
-      console.log('URL du serveur:', serverUrl);
+      // Découverte automatique du serveur mesh
+      const server = await getBestServer();
+      const serverUrl = server.url;
+      
+      console.log(`[MESH] Connexion au serveur: ${serverUrl}`);
 
-      // Connexion au serveur de signalisation
+      // Connexion au serveur mesh
       socketRef.current = io(serverUrl, {
         transports: ['websocket'],
         timeout: 10000,
@@ -302,10 +290,10 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       });
 
       socketRef.current.on('connect', () => {
-        console.log('Connecté au serveur de signalisation');
+        console.log('[MESH] Connecté au serveur mesh');
         isConnectingRef.current = false;
         
-        // S'enregistrer avec le nom d'utilisateur
+        // S'enregistrer
         socketRef.current.emit('register', username);
         
         // Créer la connexion peer
@@ -325,9 +313,8 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       });
 
       socketRef.current.on('user-joined', (userName) => {
-        console.log('Utilisateur rejoint:', userName);
+        console.log('[MESH] Utilisateur rejoint:', userName);
         if (userName !== username && peerConnectionRef.current) {
-          // Démarrer la négociation après un délai, seulement si on n'a pas déjà une connexion
           setTimeout(() => {
             if (peerConnectionRef.current && 
                 peerConnectionRef.current.signalingState === 'stable' && 
@@ -338,31 +325,35 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
         }
       });
 
+      socketRef.current.on('mesh-info', (info) => {
+        console.log('[MESH] Info réseau:', info);
+      });
+
       socketRef.current.on('disconnect', () => {
-        console.log('Déconnecté du serveur de signalisation');
+        console.log('[MESH] Déconnecté du serveur mesh');
         isConnectingRef.current = false;
         updateConnectionStatus('disconnected');
         setIsConnected(false);
       });
 
       socketRef.current.on('connect_error', (err) => {
-        console.error('Erreur connexion serveur:', err);
+        console.error('[MESH] Erreur connexion serveur:', err);
         isConnectingRef.current = false;
-        setError('Serveur de signalisation indisponible');
+        setError('Serveur mesh indisponible');
         updateConnectionStatus('error');
       });
 
     } catch (err) {
-      console.error('Erreur de connexion:', err);
+      console.error('[MESH] Erreur de connexion:', err);
       isConnectingRef.current = false;
-      setError('Erreur de connexion');
+      setError('Erreur de découverte mesh');
       updateConnectionStatus('error');
     }
   }, [username, updateConnectionStatus, createPeerConnection, handleOffer, handleAnswer, handleIceCandidate, createOffer]);
 
   // Déconnexion
   const disconnect = useCallback(() => {
-    console.log('Déconnexion...');
+    console.log('[MESH] Déconnexion...');
     
     if (dataChannelRef.current) {
       dataChannelRef.current.close();
@@ -389,7 +380,7 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
 
   // Reconnexion
   const reconnect = useCallback(() => {
-    console.log('Reconnexion...');
+    console.log('[MESH] Reconnexion...');
     disconnect();
     setTimeout(() => {
       connect();

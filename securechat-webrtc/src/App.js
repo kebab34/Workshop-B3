@@ -1,7 +1,7 @@
 // src/App.js
 import React, { useState } from 'react';
 import Chat from './components/Chat';
-import './App.css';
+import './styles/App.css';
 
 function App() {
   const [username, setUsername] = useState('');
