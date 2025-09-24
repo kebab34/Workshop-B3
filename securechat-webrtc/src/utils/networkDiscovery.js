@@ -133,6 +133,33 @@ const getLocalNetworkIP = async () => {
  * Trouve le meilleur serveur mesh disponible
  */
 export const getBestServer = async () => {
+  // D'abord, tester l'IP de l'ami (172.20.10.3)
+  try {
+    const friendIP = '172.20.10.3';
+    const response = await fetch(`http://${friendIP}:3001/health`, {
+      method: 'GET',
+      timeout: 2000,
+      signal: AbortSignal.timeout(2000)
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.mode === 'mesh' || data.status === 'OK') {
+        console.log('[DISCOVERY] Serveur ami trouvé !');
+        return {
+          url: `http://${friendIP}:3001`,
+          ip: friendIP,
+          port: 3001,
+          users: data.connectedUsers || 0,
+          uptime: data.uptime || 0,
+          friend: true
+        };
+      }
+    }
+  } catch (error) {
+    console.log('[DISCOVERY] Serveur ami non disponible, scan du réseau...');
+  }
+
   const servers = await discoverMeshServers();
   
   if (servers.length === 0) {

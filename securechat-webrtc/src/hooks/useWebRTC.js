@@ -68,8 +68,35 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
     dataChannelRef.current = channel;
   }, [updateConnectionStatus, onMessageReceived]);
 
+  // Nettoyage des anciennes connexions
+  const cleanupOldConnection = useCallback(() => {
+    if (peerConnectionRef.current) {
+      console.log('[MESH] Nettoyage ancienne connexion');
+      try {
+        peerConnectionRef.current.close();
+      } catch (err) {
+        console.log('[MESH] Erreur nettoyage:', err);
+      }
+      peerConnectionRef.current = null;
+    }
+    
+    if (dataChannelRef.current) {
+      try {
+        dataChannelRef.current.close();
+      } catch (err) {
+        console.log('[MESH] Erreur nettoyage canal:', err);
+      }
+      dataChannelRef.current = null;
+    }
+    
+    isInitiatorRef.current = false;
+  }, []);
+
   // Création du peer connection
   const createPeerConnection = useCallback(() => {
+    // Nettoyer l'ancienne connexion d'abord
+    cleanupOldConnection();
+    
     try {
       const pc = new RTCPeerConnection(rtcConfig);
 
@@ -133,7 +160,7 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
       updateConnectionStatus('error');
       return null;
     }
-  }, [setupDataChannel, updateConnectionStatus, partnerName]);
+  }, [setupDataChannel, updateConnectionStatus, partnerName, cleanupOldConnection]);
 
   // Envoi d'un message
   const sendMessage = useCallback((text, type = 'text') => {
@@ -250,15 +277,32 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
 
   // Traitement des candidats ICE
   const handleIceCandidate = useCallback(async (candidate) => {
-    if (!peerConnectionRef.current) return;
+    if (!peerConnectionRef.current) {
+      console.log('[MESH] Candidat ICE ignoré - pas de PeerConnection');
+      return;
+    }
 
     try {
+      // Vérifier l'état de la connexion avant d'ajouter le candidat
+      const state = peerConnectionRef.current.signalingState;
+      if (state === 'closed' || (state === 'stable' && !peerConnectionRef.current.remoteDescription)) {
+        console.log(`[MESH] Candidat ICE ignoré - État: ${state}`);
+        return;
+      }
+
       if (peerConnectionRef.current.remoteDescription) {
         await peerConnectionRef.current.addIceCandidate(candidate);
         console.log('[MESH] Candidat ICE ajouté');
+      } else {
+        console.log('[MESH] Candidat ICE en attente - pas de remoteDescription');
       }
     } catch (err) {
-      console.error('[MESH] Erreur ajout candidat ICE:', err);
+      // Ignorer les erreurs de candidats ICE obsolètes
+      if (err.message.includes('Unknown ufrag')) {
+        console.log('[MESH] Candidat ICE obsolète ignoré');
+      } else {
+        console.error('[MESH] Erreur ajout candidat ICE:', err);
+      }
     }
   }, []);
 
@@ -314,14 +358,23 @@ const useWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
 
       socketRef.current.on('user-joined', (userName) => {
         console.log('[MESH] Utilisateur rejoint:', userName);
-        if (userName !== username && peerConnectionRef.current) {
-          setTimeout(() => {
-            if (peerConnectionRef.current && 
-                peerConnectionRef.current.signalingState === 'stable' && 
-                !isInitiatorRef.current) {
-              createOffer();
-            }
-          }, 2000);
+        if (userName !== username && peerConnectionRef.current && !isConnected) {
+          // Seulement si pas déjà connecté et pas déjà en train de se connecter
+          if (peerConnectionRef.current.signalingState === 'stable' && 
+              peerConnectionRef.current.connectionState !== 'connecting' &&
+              !isInitiatorRef.current && !isConnectingRef.current) {
+            
+            console.log('[MESH] Tentative de connexion vers', userName);
+            isConnectingRef.current = true;
+            setTimeout(() => {
+              if (peerConnectionRef.current && 
+                  peerConnectionRef.current.signalingState === 'stable' && 
+                  !isInitiatorRef.current) {
+                createOffer();
+              }
+              isConnectingRef.current = false;
+            }, 1000);
+          }
         }
       });
 
