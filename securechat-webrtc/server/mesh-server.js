@@ -323,6 +323,32 @@ io.on('connection', (socket) => {
     socket.to('mesh-room').emit('user-left', socket.username);
   });
 
+  // Transmission de message via Socket.IO (fallback si WebRTC échoue)
+  socket.on('send-message', (data) => {
+    const user = connectedUsers.get(socket.id);
+    if (!user || !user.currentChannel) {
+      console.log(`[MESH] Message ignoré - utilisateur pas dans un canal`);
+      return;
+    }
+    
+    console.log(`[MESH] Message de ${data.sender} dans canal ${user.currentChannel}: ${data.text}`);
+    
+    const roomName = `channel-${user.currentChannel}`;
+    
+    // Ajouter les infos du serveur au message
+    const messageWithMeta = {
+      ...data,
+      timestamp: new Date().toISOString(),
+      channelId: user.currentChannel,
+      via: 'socket.io' // Indiquer que c'est via Socket.IO
+    };
+    
+    // Envoyer à tous les utilisateurs du canal (y compris l'expéditeur pour confirmation)
+    io.to(roomName).emit('message-received', messageWithMeta);
+    
+    console.log(`[MESH] Message routé dans canal ${user.currentChannel}`);
+  });
+
   // Gestion des erreurs
   socket.on('error', (error) => {
     console.error(`[${new Date().toISOString()}] Erreur socket mesh ${socket.id}:`, error);

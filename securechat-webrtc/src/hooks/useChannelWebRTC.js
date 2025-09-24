@@ -155,29 +155,42 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
   // Envoi d'un message
   const sendMessage = useCallback((text, type = 'text') => {
-    if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
-      console.error('[CHANNEL] Canal de données non disponible');
-      return false;
+    const message = {
+      text,
+      type,
+      sender: username,
+      timestamp: new Date().toISOString(),
+      channelId: currentChannel?.id,
+      id: Date.now() + Math.random()
+    };
+
+    // Essayer d'envoyer via WebRTC d'abord
+    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+      try {
+        dataChannelRef.current.send(JSON.stringify(message));
+        console.log('[CHANNEL] Message envoyé via WebRTC:', message);
+        return true;
+      } catch (err) {
+        console.error('[CHANNEL] Erreur WebRTC, fallback vers Socket.IO:', err);
+      }
     }
 
-    try {
-      const message = {
-        text,
-        type,
-        sender: username,
-        timestamp: new Date().toISOString(),
-        channelId: currentChannel?.id,
-        id: Date.now() + Math.random()
-      };
-
-      dataChannelRef.current.send(JSON.stringify(message));
-      console.log('[CHANNEL] Message envoyé:', message);
-      return true;
-    } catch (err) {
-      console.error('[CHANNEL] Erreur envoi message:', err);
-      setError('Erreur d\'envoi');
-      return false;
+    // Fallback via Socket.IO si WebRTC n'est pas disponible
+    if (socketRef.current?.connected && currentChannel) {
+      try {
+        socketRef.current.emit('send-message', message);
+        console.log('[CHANNEL] Message envoyé via Socket.IO:', message);
+        return true;
+      } catch (err) {
+        console.error('[CHANNEL] Erreur Socket.IO:', err);
+        setError('Erreur d\'envoi');
+        return false;
+      }
     }
+
+    console.error('[CHANNEL] Aucun canal de communication disponible');
+    setError('Pas de connexion disponible');
+    return false;
   }, [username, currentChannel]);
 
   // Création d'une offre
@@ -351,6 +364,13 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       socketRef.current.on('channel-users', (users) => {
         console.log('[CHANNEL] Utilisateurs du canal:', users);
         setChannelUsers(users);
+      });
+
+      socketRef.current.on('message-received', (message) => {
+        console.log('[CHANNEL] Message reçu via Socket.IO:', message);
+        if (message.channelId === currentChannel?.id && onMessageReceived) {
+          onMessageReceived(message);
+        }
       });
 
       socketRef.current.on('connect_error', (err) => {
