@@ -18,12 +18,53 @@
 
 .user-info {
   display: flex;
-  align-items: center;
-  gap: 1rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
 }
 
 .username {
   color: #00ff88;
+  font-weight: bold;
+}
+
+.channel-name {
+  color: #00aaff;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.channel-users {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.users-label {
+  color: #888;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.users-list {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.user-badge {
+  background: #333;
+  color: #e0e0e0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  border: 1px solid #555;
+}
+
+.user-badge.current-user {
+  background: #00ff88;
+  color: #000;
+  border-color: #00ff88;
   font-weight: bold;
 }
 

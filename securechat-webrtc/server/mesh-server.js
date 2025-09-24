@@ -27,6 +27,7 @@ const io = socketIo(server, {
 const connectedUsers = new Map();
 const activeConnections = new Map();
 const meshNodes = new Map(); // Pour tracker les autres nœuds du réseau
+const channelRooms = new Map(); // Pour tracker les utilisateurs par canal
 
 // Fonction pour obtenir l'IP locale du hotspot/réseau
 const getLocalNetworkIP = () => {
@@ -120,18 +121,14 @@ io.on('connection', (socket) => {
       username,
       socketId: socket.id,
       joinedAt: new Date(),
-      ip: socket.handshake.address
+      ip: socket.handshake.address,
+      currentChannel: null // Ajout du canal actuel
     });
 
-    // Rejoindre la room mesh
+    // Rejoindre la room mesh générale
     const roomName = 'mesh-room';
     socket.join(roomName);
 
-    // Informer les autres utilisateurs
-    if (connectedUsers.size <= 5) {
-      socket.to(roomName).emit('user-joined', username);
-    }
-    
     // Envoyer les statistiques mesh
     socket.emit('mesh-info', {
       connectedUsers: connectedUsers.size,
@@ -143,33 +140,76 @@ io.on('connection', (socket) => {
     console.log(`[MESH] Total utilisateurs: ${connectedUsers.size}`);
   });
 
-  // Transmission d'une offre WebRTC - Avec gestion mesh
-  socket.on('offer', (data) => {
-    console.log(`[${new Date().toISOString()}] Offre mesh de ${data.from}`);
+  // Rejoindre un canal spécifique
+  socket.on('join-channel', (data) => {
+    const { channelId, channelName } = data;
+    const user = connectedUsers.get(socket.id);
     
-    // Vérifier s'il n'y a pas déjà une connexion active
-    const connectionKey = [data.from, 'partner'].sort().join('-');
+    if (!user) return;
+    
+    console.log(`[MESH] ${user.username} rejoint le canal: ${channelName || channelId}`);
+    
+    // Quitter l'ancien canal s'il y en a un
+    if (user.currentChannel) {
+      socket.leave(`channel-${user.currentChannel}`);
+      console.log(`[MESH] ${user.username} quitte le canal: ${user.currentChannel}`);
+    }
+    
+    // Rejoindre le nouveau canal
+    const roomName = `channel-${channelId}`;
+    socket.join(roomName);
+    user.currentChannel = channelId;
+    
+    // Mettre à jour les statistiques du canal
+    if (!channelRooms.has(channelId)) {
+      channelRooms.set(channelId, new Set());
+    }
+    channelRooms.get(channelId).add(socket.id);
+    
+    // Informer les autres utilisateurs du canal
+    socket.to(roomName).emit('user-joined-channel', {
+      username: user.username,
+      channelId: channelId
+    });
+    
+    // Envoyer la liste des utilisateurs du canal
+    const channelUsers = Array.from(channelRooms.get(channelId))
+      .map(socketId => connectedUsers.get(socketId))
+      .filter(u => u)
+      .map(u => u.username);
+    
+    socket.emit('channel-users', channelUsers);
+    
+    console.log(`[MESH] Canal ${channelId}: ${channelUsers.length} utilisateurs`);
+  });
+
+  // Transmission d'une offre WebRTC - Avec gestion par canal
+  socket.on('offer', (data) => {
+    const user = connectedUsers.get(socket.id);
+    if (!user || !user.currentChannel) {
+      console.log(`[MESH] Offre ignorée - utilisateur pas dans un canal`);
+      return;
+    }
+    
+    console.log(`[${new Date().toISOString()}] Offre mesh de ${data.from} dans canal ${user.currentChannel}`);
+    
+    const roomName = `channel-${user.currentChannel}`;
+    const connectionKey = [data.from, user.currentChannel].sort().join('-');
     
     if (!activeConnections.has(connectionKey)) {
       activeConnections.set(connectionKey, {
         initiator: data.from,
         timestamp: Date.now(),
-        room: 'mesh-room'
+        room: roomName
       });
       
-      // Envoyer à tous les autres utilisateurs dans la room mesh
-      const roomSockets = Array.from(io.sockets.adapter.rooms.get('mesh-room') || []);
-      const otherSockets = roomSockets.filter(id => id !== socket.id);
-      
-      if (otherSockets.length > 0) {
-        // Sélectionner le premier utilisateur disponible
-        const targetSocket = otherSockets[0];
-        io.to(targetSocket).emit('offer', {
-          offer: data.offer,
-          from: data.from
-        });
-        console.log(`[MESH] Offre routée vers ${targetSocket}`);
-      }
+      // Envoyer à tous les autres utilisateurs dans le même canal
+      socket.to(roomName).emit('offer', {
+        offer: data.offer,
+        from: data.from,
+        channelId: user.currentChannel
+      });
+      console.log(`[MESH] Offre routée dans canal ${user.currentChannel}`);
     } else {
       console.log(`[MESH] Connexion déjà active pour ${connectionKey}`);
     }
@@ -177,21 +217,31 @@ io.on('connection', (socket) => {
 
   // Transmission d'une réponse WebRTC
   socket.on('answer', (data) => {
-    console.log(`[${new Date().toISOString()}] Réponse mesh de ${data.from}`);
+    const user = connectedUsers.get(socket.id);
+    if (!user || !user.currentChannel) return;
     
-    socket.to('mesh-room').emit('answer', {
+    console.log(`[${new Date().toISOString()}] Réponse mesh de ${data.from} dans canal ${user.currentChannel}`);
+    
+    const roomName = `channel-${user.currentChannel}`;
+    socket.to(roomName).emit('answer', {
       answer: data.answer,
-      from: data.from
+      from: data.from,
+      channelId: user.currentChannel
     });
   });
 
   // Transmission des candidats ICE
   socket.on('ice-candidate', (data) => {
-    console.log(`[${new Date().toISOString()}] Candidat ICE mesh`);
+    const user = connectedUsers.get(socket.id);
+    if (!user || !user.currentChannel) return;
     
-    socket.to('mesh-room').emit('ice-candidate', {
+    console.log(`[${new Date().toISOString()}] Candidat ICE mesh dans canal ${user.currentChannel}`);
+    
+    const roomName = `channel-${user.currentChannel}`;
+    socket.to(roomName).emit('ice-candidate', {
       candidate: data.candidate,
-      from: socket.username
+      from: socket.username,
+      channelId: user.currentChannel
     });
   });
 
@@ -224,20 +274,39 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`[${new Date().toISOString()}] Déconnexion mesh: ${socket.id} (${socket.username || 'Anonyme'})`);
     
-    // Nettoyer les connexions actives
-    if (socket.username) {
+    const user = connectedUsers.get(socket.id);
+    
+    if (user) {
+      // Nettoyer les connexions actives
       for (let [key, connection] of activeConnections.entries()) {
-        if (key.includes(socket.username)) {
+        if (key.includes(user.username)) {
           activeConnections.delete(key);
           console.log(`[MESH] Connexion ${key} nettoyée`);
         }
+      }
+      
+      // Retirer l'utilisateur du canal
+      if (user.currentChannel) {
+        const channelUsers = channelRooms.get(user.currentChannel);
+        if (channelUsers) {
+          channelUsers.delete(socket.id);
+          if (channelUsers.size === 0) {
+            channelRooms.delete(user.currentChannel);
+          }
+        }
+        
+        // Notifier les autres utilisateurs du canal
+        socket.to(`channel-${user.currentChannel}`).emit('user-left-channel', {
+          username: user.username,
+          channelId: user.currentChannel
+        });
       }
     }
     
     // Nettoyer les utilisateurs connectés
     connectedUsers.delete(socket.id);
     
-    // Notifier les autres de la déconnexion
+    // Notifier les autres de la déconnexion générale
     socket.to('mesh-room').emit('user-left', socket.username);
   });
 

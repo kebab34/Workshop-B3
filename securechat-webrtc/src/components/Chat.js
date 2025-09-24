@@ -1,12 +1,12 @@
-// src/components/Chat.js - Suppression synchronisée simple
+// src/components/Chat.js - Version avec support des canaux
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import ConnectionStatus from './ConnectionStatus';
-import useWebRTC from '../hooks/useWebRTC';
+import useChannelWebRTC from '../hooks/useChannelWebRTC';
 import '../styles/Chat.css';
 
-function Chat({ username }) {
+function Chat({ username, channel }) {
   const [messages, setMessages] = useState([]);
   const [hasAutoConnected, setHasAutoConnected] = useState(false);
   const messagesEndRef = useRef(null);
@@ -74,13 +74,33 @@ function Chat({ username }) {
   const {
     isConnected,
     connectionStatus,
-    partnerName,
+    currentChannel,
+    channelUsers,
     error,
     connect,
     disconnect,
-    sendMessage: sendWebRTCMessage,
-    reconnect
-  } = useWebRTC(username, handleMessageReceived, handleConnectionStatusChange);
+    joinChannel,
+    leaveChannel,
+    sendMessage: sendWebRTCMessage
+  } = useChannelWebRTC(username, handleMessageReceived, handleConnectionStatusChange);
+
+  // Fonction de reconnexion (disconnect + rejoin channel)
+  const reconnect = useCallback(async () => {
+    console.log('Reconnecting...');
+    if (currentChannel) {
+      const channelToRejoin = currentChannel;
+      disconnect();
+      // Attendre un peu avant de reconnecter
+      setTimeout(() => {
+        joinChannel(channelToRejoin);
+      }, 1000);
+    } else if (channel) {
+      disconnect();
+      setTimeout(() => {
+        joinChannel(channel);
+      }, 1000);
+    }
+  }, [currentChannel, channel, disconnect, joinChannel]);
 
   // Fonction pour envoyer un message
   const sendMessage = useCallback((text, type = 'text') => {
@@ -141,12 +161,29 @@ function Chat({ username }) {
     // Message de bienvenue
     addMessage('🛡️ SecureLink initialisé - Canal de communication sécurisé prêt', 'System', 'system', false);
     
-    // Connexion automatique unique
-    if (!hasAutoConnected) {
+    // Connexion automatique unique avec support des canaux
+    if (!hasAutoConnected && channel) {
       setHasAutoConnected(true);
-      setTimeout(() => {
-        console.log('Connexion automatique...');
-        connect();
+      setTimeout(async () => {
+        console.log(`Connexion automatique et rejointure du canal ${channel.name}...`);
+        
+        try {
+          // Se connecter au serveur d'abord
+          await connect();
+          
+          // Puis rejoindre le canal après un court délai
+          setTimeout(async () => {
+            const success = await joinChannel(channel);
+            if (success) {
+              addMessage(`📡 Connecté au canal: ${channel.name}`, 'System', 'system', false);
+            } else {
+              addMessage('❌ Échec de connexion au canal', 'System', 'system', false);
+            }
+          }, 1000);
+        } catch (error) {
+          console.error('Erreur connexion:', error);
+          addMessage('🚨 Erreur de connexion au serveur', 'System', 'system', false);
+        }
       }, 1500);
     }
   }, []);
@@ -181,10 +218,22 @@ function Chat({ username }) {
       <div className="chat-header">
         <div className="user-info">
           <span className="username">{username}</span>
+          <span className="channel-name">Canal: {currentChannel?.name || channel?.name}</span>
           <ConnectionStatus 
             status={connectionStatus} 
-            partnerName={partnerName} 
+            partnerName={channelUsers.length > 1 ? `${channelUsers.length - 1} autre(s)` : 'Aucun autre utilisateur'} 
           />
+        </div>
+        
+        <div className="channel-users">
+          <span className="users-label">👥 Utilisateurs ({channelUsers.length}):</span>
+          <div className="users-list">
+            {channelUsers.map(user => (
+              <span key={user} className={`user-badge ${user === username ? 'current-user' : ''}`}>
+                {user}
+              </span>
+            ))}
+          </div>
         </div>
         
         <div className="chat-actions">
