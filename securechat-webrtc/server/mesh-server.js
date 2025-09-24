@@ -172,13 +172,14 @@ io.on('connection', (socket) => {
       channelId: channelId
     });
     
-    // Envoyer la liste des utilisateurs du canal
+    // Envoyer la liste des utilisateurs du canal à TOUS les utilisateurs du canal
     const channelUsers = Array.from(channelRooms.get(channelId))
       .map(socketId => connectedUsers.get(socketId))
       .filter(u => u)
       .map(u => u.username);
     
-    socket.emit('channel-users', channelUsers);
+    // Envoyer à tout le canal (y compris le nouvel utilisateur)
+    io.to(roomName).emit('channel-users', channelUsers);
     
     console.log(`[MESH] Canal ${channelId}: ${channelUsers.length} utilisateurs`);
   });
@@ -290,16 +291,28 @@ io.on('connection', (socket) => {
         const channelUsers = channelRooms.get(user.currentChannel);
         if (channelUsers) {
           channelUsers.delete(socket.id);
+          
+          // Notifier les autres utilisateurs du canal
+          socket.to(`channel-${user.currentChannel}`).emit('user-left-channel', {
+            username: user.username,
+            channelId: user.currentChannel
+          });
+          
+          // Mettre à jour la liste des utilisateurs restants
+          const remainingUsers = Array.from(channelUsers)
+            .map(socketId => connectedUsers.get(socketId))
+            .filter(u => u)
+            .map(u => u.username);
+          
+          // Envoyer la liste mise à jour à tous les utilisateurs restants
+          io.to(`channel-${user.currentChannel}`).emit('channel-users', remainingUsers);
+          
+          // Nettoyer le canal s'il est vide
           if (channelUsers.size === 0) {
             channelRooms.delete(user.currentChannel);
+            console.log(`[MESH] Canal ${user.currentChannel} supprimé (vide)`);
           }
         }
-        
-        // Notifier les autres utilisateurs du canal
-        socket.to(`channel-${user.currentChannel}`).emit('user-left-channel', {
-          username: user.username,
-          channelId: user.currentChannel
-        });
       }
     }
     
