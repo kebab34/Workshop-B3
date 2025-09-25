@@ -1,4 +1,4 @@
-// src/components/HomePage.js - Avec synchronisation temps réel
+// src/components/HomePage.js - Avec synchronisation temps réel des canaux créés
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import CreateChannelModal from './CreateChannelModal';
@@ -129,22 +129,28 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
       setUsersLoading(false);
     });
 
-    // Liste des canaux reçue
-    socketRef.current.on('channels-list', (channels) => {
-      console.log('[HOMEPAGE] Liste canaux reçue:', channels);
+    // 🔥 NOUVELLE GESTION DES CANAUX - Liste complète des canaux reçue
+    socketRef.current.on('channels-list', (channelsFromServer) => {
+      console.log('[HOMEPAGE] Liste complète des canaux reçue:', channelsFromServer);
       
-      // Fusionner les canaux par défaut avec les canaux du serveur
-      const serverChannels = channels.map(channel => ({
-        ...channel,
-        isCustom: !channel.isDefault,
-        users: channel.users || 0
-      }));
-      
-      // Garder les canaux par défaut et ajouter les canaux du serveur
-      const defaultChannelsOnly = availableChannels.filter(ch => ch.isDefault);
-      const customChannelsFromServer = serverChannels.filter(ch => ch.isCustom);
-      
-      setAvailableChannels([...defaultChannelsOnly, ...customChannelsFromServer]);
+      // Fusionner les canaux par défaut (locaux) avec les canaux personnalisés (serveur)
+      setAvailableChannels(prevChannels => {
+        // Garder les canaux par défaut
+        const defaultChannelsOnly = prevChannels.filter(ch => ch.isDefault);
+        
+        // Formater les canaux du serveur
+        const serverChannels = channelsFromServer
+          .filter(ch => ch.isCustom) // Seulement les canaux personnalisés
+          .map(channel => ({
+            ...channel,
+            isCustom: true,
+            isDefault: false,
+            users: channel.users || 0
+          }));
+        
+        console.log('[HOMEPAGE] Canaux fusionnés:', [...defaultChannelsOnly, ...serverChannels]);
+        return [...defaultChannelsOnly, ...serverChannels];
+      });
     });
 
     // Nouvel utilisateur connecté
@@ -176,23 +182,28 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
       );
     });
 
-    // Nouveau canal créé
-    socketRef.current.on('channel-created', (channel) => {
-      console.log('[HOMEPAGE] Nouveau canal créé:', channel.name);
+    // 🔥 NOUVEAU - Canal créé par un autre utilisateur
+    socketRef.current.on('channel-created', (newChannel) => {
+      console.log('[HOMEPAGE] ✨ Nouveau canal créé par un autre utilisateur:', newChannel);
       
-      const newChannel = {
-        ...channel,
-        isCustom: true,
-        isDefault: false,
-        users: channel.users || 0
-      };
-      
-      setAvailableChannels(prev => {
-        // Éviter les doublons
-        if (prev.some(ch => ch.id === channel.id)) {
-          return prev;
+      // Ajouter le canal à la liste locale
+      setAvailableChannels(prevChannels => {
+        // Vérifier si le canal n'existe pas déjà
+        const channelExists = prevChannels.some(ch => ch.id === newChannel.id);
+        if (channelExists) {
+          console.log('[HOMEPAGE] Canal déjà présent, ignoré');
+          return prevChannels;
         }
-        return [...prev, newChannel];
+        
+        const formattedChannel = {
+          ...newChannel,
+          isCustom: true,
+          isDefault: false,
+          users: newChannel.users || 0
+        };
+        
+        console.log('[HOMEPAGE] 📢 Canal ajouté à l\'interface:', formattedChannel);
+        return [...prevChannels, formattedChannel];
       });
     });
 
@@ -288,7 +299,7 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
     }, 500);
   };
 
-  // Créer un nouveau canal
+  // 🔥 NOUVELLE FONCTION - Créer un nouveau canal avec synchronisation
   const handleCreateChannel = async (channelData) => {
     try {
       // Marquer le canal comme personnalisé
@@ -297,21 +308,34 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         isCustom: true,
         isDefault: false,
         createdBy: username,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        users: 0 // Commencer avec 0 utilisateur
       };
       
-      // Envoyer au serveur pour synchronisation
+      console.log('[HOMEPAGE] 🚀 Création d\'un nouveau canal:', newChannel);
+      
+      // 1. Ajouter immédiatement à l'interface locale (optimistic update)
+      setAvailableChannels(prev => [...prev, newChannel]);
+      
+      // 2. Envoyer au serveur pour synchronisation avec tous les clients
       if (socketRef.current?.connected) {
+        console.log('[HOMEPAGE] 📡 Envoi du canal au serveur pour synchronisation...');
         socketRef.current.emit('create-channel', newChannel);
-        console.log('[HOMEPAGE] Canal envoyé au serveur:', newChannel);
+        
+        // Le serveur va diffuser un 'channel-created' à tous les autres clients
+        console.log('[HOMEPAGE] ✅ Canal envoyé au serveur pour diffusion');
       } else {
-        // Ajouter localement si pas de connexion serveur
-        setAvailableChannels(prev => [...prev, newChannel]);
-        console.log('[HOMEPAGE] Canal créé localement:', newChannel);
+        console.log('[HOMEPAGE] ⚠️ Pas de connexion serveur, canal créé localement seulement');
+        // Afficher une notification que le canal ne sera visible que localement
+        alert('⚠️ Attention: Canal créé en mode hors-ligne. Il ne sera visible que sur cet appareil.');
       }
       
     } catch (error) {
-      console.error('Erreur création canal:', error);
+      console.error('[HOMEPAGE] ❌ Erreur création canal:', error);
+      
+      // Annuler l'ajout optimiste en cas d'erreur
+      setAvailableChannels(prev => prev.filter(ch => ch.id !== channelData.id));
+      
       throw error;
     }
   };
@@ -466,6 +490,9 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
                   
                   <div className="channel-meta">
                     <span className="created-by">Par: {channel.createdBy === username ? 'Vous' : channel.createdBy}</span>
+                    {usersServerConnected && (
+                      <span className="synced-indicator" title="Synchronisé sur tous les appareils">🔄</span>
+                    )}
                   </div>
                 </div>
               </div>
