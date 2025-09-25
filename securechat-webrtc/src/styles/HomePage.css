@@ -42,41 +42,49 @@
   color: #888;
 }
 
-.network-controls {
-  display: flex;
-  gap: 0.5rem;
+.offline-indicator {
+  color: #ff4444;
+  font-style: italic;
 }
 
-.scan-button {
+/* Indicateur de connexion */
+.connection-indicator {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: transparent;
-  border: 1px solid #00ff88;
-  color: #00ff88;
-  padding: 0.5rem 1rem;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: all 0.3s;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 20px;
+  border: 1px solid #444;
 }
 
-.scan-button:hover:not(:disabled) {
-  background: rgba(0, 255, 136, 0.1);
-  transform: translateY(-2px);
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
 }
 
-.scan-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.connection-dot.connected {
+  background: #00ff88;
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
 }
 
-.scan-icon.spinning {
-  animation: spin 1s linear infinite;
+.connection-dot.disconnected {
+  background: #ff4444;
+  box-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+  animation: pulse-red 2s infinite;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.connection-text {
+  font-size: 0.8rem;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* Section des canaux */
@@ -239,319 +247,290 @@
   font-weight: bold;
 }
 
-/* Section réseau mesh */
-.mesh-section {
+/* Section des canaux personnalisés */
+.custom-channels-section {
   background: #111;
   border-radius: 10px;
-  border: 1px solid #333;
-  overflow: hidden;
-}
-
-.mesh-status {
+  border: 1px solid #444;
   padding: 1.5rem;
 }
 
-.mesh-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
+.custom-channels-section .section-header h3 {
+  color: #8844ff;
 }
 
-.mesh-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.mesh-title h4 {
-  margin: 0;
-  color: #e0e0e0;
-}
-
-.mesh-icon {
-  font-size: 1.5rem;
-}
-
-.network-strength {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.strength-bars {
-  display: flex;
-  gap: 2px;
-}
-
-.strength-bar {
-  width: 4px;
-  height: 16px;
-  background: #333;
-  border-radius: 2px;
-  transition: background 0.3s;
-}
-
-.strength-bar.active {
-  background: #00ff88;
-}
-
-.strength-label {
-  font-size: 0.8rem;
+.channel-count {
+  font-size: 0.9rem;
   color: #666;
+  background: rgba(136, 68, 255, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 10px;
 }
 
-/* Statistiques mesh */
-.mesh-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.stat-item {
+.channel-meta {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 0.5rem;
-  background: #1a1a1a;
-  border-radius: 5px;
+  align-items: flex-end;
+  gap: 0.25rem;
 }
 
-.stat-value {
-  font-size: 1.5rem;
+.created-by {
+  font-size: 0.8rem;
+  color: #8844ff;
+  font-style: italic;
+}
+
+/* Section des utilisateurs connectés */
+.connected-users-section {
+  background: #111;
+  border-radius: 10px;
+  border: 1px solid #333;
+  padding: 1.5rem;
+}
+
+.connected-users-section .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.connected-users-section h3 {
+  margin: 0;
+  color: #00ff88;
+  font-size: 1.4rem;
+}
+
+.users-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.online-indicator {
+  color: #00ff88;
+  font-size: 0.8rem;
+  animation: pulse 2s infinite;
+}
+
+.users-stats .users-count {
+  color: #00ff88;
   font-weight: bold;
+}
+
+.loading-text {
+  color: #ffaa00;
+  font-style: italic;
+}
+
+.error-text {
+  color: #ff4444;
+  font-style: italic;
+}
+
+/* Grille des utilisateurs */
+.users-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #1a1a1a;
+  border: 2px solid #333;
+  border-radius: 10px;
+  padding: 1rem;
+  transition: all 0.3s ease;
+}
+
+.user-card:hover {
+  border-color: #555;
+  transform: translateY(-2px);
+}
+
+.user-card.current-user {
+  border-color: #00ff88;
+  background: rgba(0, 255, 136, 0.05);
+}
+
+/* Avatar utilisateur */
+.user-avatar {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, #00ff88, #00cc70);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: #000;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.user-initial {
+  font-weight: bold;
+}
+
+.status-indicator {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #1a1a1a;
+}
+
+.status-indicator.online {
+  background: #00ff88;
+}
+
+.status-indicator.away {
+  background: #ffaa00;
+}
+
+.status-indicator.offline {
+  background: #666;
+}
+
+/* Informations utilisateur */
+.user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.user-name {
+  font-weight: bold;
+  color: #e0e0e0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.you-badge {
+  background: #00ff88;
+  color: #000;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+.user-status {
+  font-size: 0.9rem;
+  color: #888;
+}
+
+.in-channel {
   color: #00ff88;
 }
 
-.stat-label {
+.in-lobby {
+  color: #666;
+}
+
+.user-connection {
   font-size: 0.8rem;
   color: #666;
 }
 
-/* Animation de scan */
-.scanning-indicator {
+/* Actions utilisateur */
+.user-actions {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  background: rgba(0, 255, 136, 0.05);
-  border: 1px solid rgba(0, 255, 136, 0.2);
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.direct-message-btn {
+  background: transparent;
+  border: 1px solid #666;
+  color: #e0e0e0;
+  padding: 0.5rem;
   border-radius: 5px;
-  margin-bottom: 1rem;
-}
-
-.scanning-animation {
-  display: flex;
-  gap: 4px;
-}
-
-.pulse {
-  width: 8px;
-  height: 8px;
-  background: #00ff88;
-  border-radius: 50%;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.pulse:nth-child(2) {
-  animation-delay: 0.3s;
-}
-
-.pulse:nth-child(3) {
-  animation-delay: 0.6s;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.5); opacity: 0.5; }
-}
-
-/* Nœuds mesh */
-.mesh-nodes {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.mesh-nodes::-webkit-scrollbar {
-  width: 6px;
-}
-
-.mesh-nodes::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 3px;
-}
-
-.mesh-node {
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 5px;
-  margin-bottom: 0.5rem;
   cursor: pointer;
   transition: all 0.2s;
+  font-size: 1.1rem;
 }
 
-.mesh-node:hover {
-  border-color: #555;
-}
-
-.mesh-node.expanded {
+.direct-message-btn:hover {
   border-color: #00ff88;
+  background: rgba(0, 255, 136, 0.1);
+  transform: scale(1.1);
 }
 
-.node-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
-}
-
-.node-basic-info {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.node-ip {
-  font-family: monospace;
-  color: #e0e0e0;
-  font-weight: bold;
-}
-
-.node-users {
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.node-expand {
-  color: #666;
-  transition: transform 0.2s;
-}
-
-.mesh-node.expanded .node-expand {
-  transform: rotate(90deg);
-}
-
-.node-details {
-  padding: 0 0.75rem 0.75rem;
-  border-top: 1px solid #333;
-  background: #0f0f0f;
-}
-
-.detail-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.25rem 0;
-}
-
-.detail-label {
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.detail-value {
-  color: #e0e0e0;
-  font-size: 0.9rem;
-}
-
-.detail-url {
-  font-family: monospace;
-  color: #00ff88;
-}
-
-/* Absence de mesh */
-.no-mesh {
+/* Aucun utilisateur */
+.no-users {
+  grid-column: 1 / -1;
   text-align: center;
   padding: 2rem;
   color: #666;
 }
 
-.no-mesh-icon {
+.no-users-icon {
   font-size: 3rem;
   margin-bottom: 1rem;
+  opacity: 0.5;
 }
 
-.no-mesh h4 {
-  color: #e0e0e0;
+.no-users p {
+  margin: 0 0 0.5rem 0;
+  color: #888;
+  font-size: 1.1rem;
+}
+
+.no-users small {
+  color: #666;
+  font-style: italic;
+  display: block;
   margin-bottom: 1rem;
 }
 
-.no-mesh ul {
-  text-align: left;
-  max-width: 300px;
-  margin: 1rem auto;
+/* Chargement des utilisateurs */
+.users-loading {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem;
+  color: #888;
 }
 
-.create-mesh-hint {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-top: 1rem;
-  padding: 0.5rem;
-  background: rgba(0, 255, 136, 0.05);
-  border-radius: 5px;
-  font-size: 0.9rem;
+.users-loading .loading-spinner {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  animation: spin 1s linear infinite;
 }
 
-/* Actions mesh */
-.mesh-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #333;
+.users-loading p {
+  margin: 0;
+  font-style: italic;
 }
 
-.mesh-action-btn {
-  flex: 1;
+/* Bouton de reconnexion */
+.retry-connection-btn {
   background: transparent;
-  border: 1px solid #555;
-  color: #e0e0e0;
-  padding: 0.5rem;
+  border: 1px solid #ffaa00;
+  color: #ffaa00;
+  padding: 0.5rem 1rem;
   border-radius: 5px;
   cursor: pointer;
-  font-size: 0.9rem;
   transition: all 0.2s;
-}
-
-.mesh-action-btn:hover {
-  border-color: #00ff88;
-  color: #00ff88;
-}
-
-/* Aide rapide */
-.quick-help {
-  background: #111;
-  border-radius: 10px;
-  border: 1px solid #333;
-  padding: 1.5rem;
-}
-
-.quick-help h4 {
-  margin: 0 0 1rem 0;
-  color: #e0e0e0;
-}
-
-.help-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 0.5rem;
-}
-
-.help-item {
+  margin-top: 1rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem;
-  background: #1a1a1a;
-  border-radius: 5px;
-  font-size: 0.9rem;
-  color: #e0e0e0;
+  justify-self: center;
 }
 
-.help-icon {
-  font-size: 1.2rem;
+.retry-connection-btn:hover {
+  background: rgba(255, 170, 0, 0.1);
+  transform: translateY(-2px);
 }
 
 /* Overlay de transition */
@@ -624,6 +603,18 @@
   40% { transform: scale(1); }
 }
 
+/* Animation pulse pour l'indicateur en ligne */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Animation spin pour le loading */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .home-page {
@@ -641,15 +632,99 @@
     grid-template-columns: 1fr;
   }
 
-  .mesh-stats {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .help-grid {
+  .users-grid {
     grid-template-columns: 1fr;
   }
+  
+  .user-card {
+    padding: 0.75rem;
+  }
+  
+  .user-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+  }
+  
+  .custom-channels-section,
+  .connected-users-section {
+    padding: 1rem;
+  }
 
-  .mesh-actions {
+  .section-header {
     flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+
+  .section-header h3 {
+    text-align: center;
+  }
+
+  .retry-connection-btn {
+    align-self: center;
+    justify-self: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-page {
+    padding: 0.25rem;
+    gap: 0.75rem;
+  }
+
+  .home-header {
+    padding: 0.75rem;
+  }
+
+  .user-welcome h2 {
+    font-size: 1.3rem;
+  }
+
+  .network-status {
+    font-size: 0.8rem;
+  }
+
+  .channels-section,
+  .custom-channels-section,
+  .connected-users-section {
+    padding: 0.75rem;
+  }
+
+  .section-header h3 {
+    font-size: 1.2rem;
+  }
+
+  .create-channel-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.9rem;
+  }
+
+  .channel-card {
+    padding: 0.75rem;
+  }
+
+  .channel-icon {
+    font-size: 1.5rem;
+  }
+
+  .channel-name {
+    font-size: 1rem;
+  }
+
+  .user-card {
+    padding: 0.5rem;
+    gap: 0.75rem;
+  }
+
+  .user-avatar {
+    width: 35px;
+    height: 35px;
+    font-size: 0.9rem;
+  }
+
+  .direct-message-btn {
+    padding: 0.4rem;
+    font-size: 1rem;
   }
 }

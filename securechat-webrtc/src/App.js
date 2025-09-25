@@ -1,7 +1,7 @@
-// src/App.js - Version avec page d'accueil
+// src/App.js - Version avec page d'accueil mise à jour
 import React, { useState } from 'react';
-import Chat from './components/Chat';
-import HomePage from './components/HomePage';
+import Chat from './components/Chat.js';
+import HomePage from './components/HomePage.js';
 import './styles/App.css';
 
 function App() {
