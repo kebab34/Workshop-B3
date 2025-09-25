@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test WebRTC - SecureChat</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #fff; }
+        .test { margin: 10px 0; padding: 10px; border: 1px solid #333; }
+        .success { border-color: green; background: #002000; }
+        .error { border-color: red; background: #200000; }
+        .warning { border-color: orange; background: #201000; }
+        button { padding: 10px; margin: 5px; background: #333; color: white; border: 1px solid #555; }
+        .logs { background: #000; padding: 10px; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Test WebRTC SecureChat</h1>
+    
+    <div>
+        <button onclick="testStun()">Test STUN</button>
+        <button onclick="testChannelConnection()">Test Canal</button>
+        <button onclick="clearLogs()">Clear</button>
+    </div>
+    
+    <div id="results"></div>
+    <div id="logs" class="logs"></div>
+
+    <script>
+        const results = document.getElementById('results');
+        const logs = document.getElementById('logs');
+        
+        function log(message) {
+            const div = document.createElement('div');
+            div.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            logs.appendChild(div);
+            logs.scrollTop = logs.scrollHeight;
+            console.log(message);
+        }
+        
+        function addResult(test, type, message) {
+            const div = document.createElement('div');
+            div.className = `test ${type}`;
+            div.innerHTML = `<strong>${test}</strong>: ${message}`;
+            results.appendChild(div);
+        }
+        
+        function clearLogs() {
+            logs.innerHTML = '';
+            results.innerHTML = '';
+        }
+        
+        async function testStun() {
+            log('🔍 Test des serveurs STUN...');
+            
+            try {
+                const pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                });
+                
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        log(`ICE Candidate: ${event.candidate.candidate}`);
+                        
+                        if (event.candidate.candidate.includes('srflx')) {
+                            addResult('STUN', 'success', '✅ Serveur STUN accessible - NAT détecté');
+                        } else if (event.candidate.candidate.includes('host')) {
+                            log('Candidat local détecté');
+                        }
+                    } else {
+                        log('✅ Collecte ICE terminée');
+                        pc.close();
+                    }
+                };
+                
+                // Créer une offre pour déclencher la collecte ICE
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                setTimeout(() => {
+                    pc.close();
+                    addResult('STUN', 'warning', 'Test terminé - Vérifiez les candidats ci-dessus');
+                }, 5000);
+                
+            } catch (error) {
+                log(`❌ Erreur STUN: ${error.message}`);
+                addResult('STUN', 'error', 'Échec du test STUN');
+            }
+        }
+        
+        async function testChannelConnection() {
+            log('🔗 Test connexion canal...');
+            
+            try {
+                // Test serveur mesh
+                const response = await fetch('http://172.20.10.6:3001/health');
+                const data = await response.json();
+                log(`✅ Serveur mesh: ${data.connectedUsers} utilisateurs connectés`);
+                addResult('Serveur', 'success', `Mesh OK - ${data.connectedUsers} users`);
+                
+                // Test socket.io
+                const socket = io('http://172.20.10.6:3001');
+                
+                socket.on('connect', () => {
+                    log('✅ Socket.IO connecté');
+                    addResult('Socket.IO', 'success', 'Connexion WebSocket OK');
+                    
+                    socket.emit('register', 'TestUser-' + Math.random().toString(36).substr(2, 5));
+                });
+                
+                socket.on('connect_error', (error) => {
+                    log(`❌ Socket.IO erreur: ${error}`);
+                    addResult('Socket.IO', 'error', 'Échec connexion WebSocket');
+                });
+                
+                setTimeout(() => {
+                    socket.disconnect();
+                }, 3000);
+                
+            } catch (error) {
+                log(`❌ Erreur test canal: ${error.message}`);
+                addResult('Canal', 'error', 'Échec test canal');
+            }
+        }
+        
+        // Auto-test au chargement
+        window.onload = () => {
+            log('🚀 Page de test chargée');
+        };
+    </script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</body>
+</html>

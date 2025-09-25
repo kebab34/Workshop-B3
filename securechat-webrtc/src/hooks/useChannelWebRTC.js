@@ -16,12 +16,20 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
   const isInitiatorRef = useRef(false);
   const isConnectingRef = useRef(false);
 
-  // Configuration WebRTC avec serveurs STUN publics
+  // Configuration WebRTC avec serveurs STUN publics et TURN de secours
   const rtcConfig = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      // Serveur TURN public de secours (limité mais peut aider)
+      { 
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
     ],
+    iceCandidatePoolSize: 10
   };
 
   // Mise à jour du statut de connexion
@@ -113,29 +121,45 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
       pc.onconnectionstatechange = () => {
         console.log('[CHANNEL] Connection state:', pc.connectionState);
+        console.log('[CHANNEL] ICE Connection state:', pc.iceConnectionState);
+        console.log('[CHANNEL] ICE Gathering state:', pc.iceGatheringState);
         
         switch (pc.connectionState) {
           case 'connected':
+            console.log('🎉 [CHANNEL] WebRTC Connexion établie !');
             updateConnectionStatus('connected');
             setIsConnected(true);
             setError(null);
             break;
           case 'connecting':
+            console.log('🔄 [CHANNEL] Connexion WebRTC en cours...');
             updateConnectionStatus('connecting');
             break;
           case 'disconnected':
+            console.log('❌ [CHANNEL] WebRTC Déconnecté');
             updateConnectionStatus('disconnected');
             setIsConnected(false);
             break;
           case 'failed':
+            console.log('💥 [CHANNEL] Échec WebRTC - Problème de NAT/Firewall probable');
             updateConnectionStatus('error');
             setIsConnected(false);
-            setError('Connexion échouée');
+            setError('Connexion WebRTC échouée - Vérifiez NAT/Firewall');
             break;
           case 'closed':
+            console.log('🔒 [CHANNEL] WebRTC Fermé');
             updateConnectionStatus('disconnected');
             setIsConnected(false);
             break;
+        }
+      };
+
+      // Debug ICE state changes  
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[CHANNEL] ICE State: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'failed') {
+          console.log('🚨 [CHANNEL] ICE Failed - Connexion directe impossible');
+          console.log('💡 [CHANNEL] Suggestion: Désactivez le firewall ou utilisez un serveur TURN');
         }
       };
 
@@ -155,6 +179,16 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
   // Envoi d'un message
   const sendMessage = useCallback((text, type = 'text') => {
+    console.log(`[CHANNEL] 🚀 Tentative d'envoi de message:`, { 
+      text, 
+      type,
+      dataChannelState: dataChannelRef.current?.readyState,
+      socketConnected: socketRef.current?.connected,
+      currentChannelId: currentChannel?.id,
+      hasDataChannel: !!dataChannelRef.current,
+      hasSocket: !!socketRef.current
+    });
+
     const message = {
       text,
       type,
@@ -168,27 +202,36 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
       try {
         dataChannelRef.current.send(JSON.stringify(message));
-        console.log('[CHANNEL] Message envoyé via WebRTC:', message);
+        console.log('[CHANNEL] ✅ Message envoyé via WebRTC:', message);
         return true;
       } catch (err) {
-        console.error('[CHANNEL] Erreur WebRTC, fallback vers Socket.IO:', err);
+        console.error('[CHANNEL] ❌ Erreur WebRTC, fallback vers Socket.IO:', err);
       }
+    } else {
+      console.log('[CHANNEL] 📡 WebRTC non disponible, utilisation Socket.IO directement');
     }
 
     // Fallback via Socket.IO si WebRTC n'est pas disponible
     if (socketRef.current?.connected && currentChannel) {
       try {
+        console.log('[CHANNEL] 📤 Envoi via Socket.IO...', message);
         socketRef.current.emit('send-message', message);
-        console.log('[CHANNEL] Message envoyé via Socket.IO:', message);
+        console.log('[CHANNEL] ✅ Message envoyé via Socket.IO:', message);
         return true;
       } catch (err) {
-        console.error('[CHANNEL] Erreur Socket.IO:', err);
+        console.error('[CHANNEL] ❌ Erreur Socket.IO:', err);
         setError('Erreur d\'envoi');
         return false;
       }
+    } else {
+      console.error('[CHANNEL] ❌ Conditions non remplies:', {
+        socketConnected: socketRef.current?.connected,
+        hasCurrentChannel: !!currentChannel,
+        channelId: currentChannel?.id
+      });
     }
 
-    console.error('[CHANNEL] Aucun canal de communication disponible');
+    console.error('[CHANNEL] ❌ Aucun canal de communication disponible');
     setError('Pas de connexion disponible');
     return false;
   }, [username, currentChannel]);

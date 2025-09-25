@@ -106,21 +106,34 @@ function Chat({ username, channel }) {
   const sendMessage = useCallback((text, type = 'text') => {
     if (!text.trim()) return;
 
+    console.log(`[DEBUG] Tentative d'envoi:`, { 
+      text, 
+      type, 
+      isConnected, 
+      connectionStatus,
+      currentChannel: currentChannel?.name, 
+      channelUsers: channelUsers.length 
+    });
+
     // Ajouter immédiatement à notre interface
     addMessage(text, username, type);
     
-    // Envoyer via WebRTC si connecté
-    if (isConnected) {
+    // Envoyer via le hook WebRTC (il gère WebRTC + fallback Socket.IO)
+    if (connectionStatus === 'connected' && currentChannel) {
+      console.log(`[DEBUG] Tentative d'envoi via hook WebRTC...`);
       const success = sendWebRTCMessage(text, type);
       if (!success) {
+        console.log(`[DEBUG] Échec d'envoi complet`);
         addMessage('⚠️ Échec d\'envoi - Message stocké localement', 'System', 'system', false);
+      } else {
+        console.log(`[DEBUG] Envoi réussi`);
       }
     } else {
+      console.log(`[DEBUG] Non prêt - Status: ${connectionStatus}, Canal: ${currentChannel?.name || 'aucun'}`);
       addMessage('📤 Message en attente de connexion...', 'System', 'system', false);
     }
   }, [addMessage, username, isConnected, sendWebRTCMessage]);
 
-  // Fonction d'urgence
   const sendEmergencyMessage = useCallback(() => {
     const emergencyText = '🚨 MESSAGE D\'URGENCE - Position compromise, besoin d\'aide immédiate !';
     sendMessage(emergencyText, 'emergency');
@@ -168,16 +181,21 @@ function Chat({ username, channel }) {
         console.log(`Connexion automatique et rejointure du canal ${channel.name}...`);
         
         try {
+          console.log(`[DEBUG] Canal à rejoindre:`, channel);
+          
           // Se connecter au serveur d'abord
           await connect();
           
           // Puis rejoindre le canal après un court délai
           setTimeout(async () => {
+            console.log(`[DEBUG] Tentative de rejoin du canal:`, channel);
             const success = await joinChannel(channel);
             if (success) {
-              addMessage(`📡 Connecté au canal: ${channel.name}`, 'System', 'system', false);
+              addMessage(`📡 Connecté au canal: ${channel.name} (ID: ${channel.id})`, 'System', 'system', false);
+              console.log(`[DEBUG] Succès - Canal actuel:`, currentChannel);
             } else {
               addMessage('❌ Échec de connexion au canal', 'System', 'system', false);
+              console.log(`[DEBUG] Échec de connexion au canal`);
             }
           }, 1000);
         } catch (error) {
