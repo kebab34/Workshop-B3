@@ -1,4 +1,3 @@
-// src/App.js - Version avec cours de survie intégrés
 import React, { useState } from 'react';
 import Chat from './components/Chat.js';
 import HomePage from './components/HomePage.js';
@@ -103,7 +102,7 @@ function App() {
   );
 }
 
-// Composant de connexion amélioré
+// Composant de connexion
 function LoginForm({ onConnect }) {
   const [name, setName] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
@@ -113,7 +112,6 @@ function LoginForm({ onConnect }) {
     if (name.trim()) {
       setIsConnecting(true);
       
-      // Simulation d'une vérification/connexion
       setTimeout(() => {
         onConnect(name.trim());
         setIsConnecting(false);

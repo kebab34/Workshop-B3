@@ -1,7 +1,6 @@
 // src/hooks/useChannelWebRTC.js - Hook WebRTC avec support des canaux
 import { useState, useEffect, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
-import { getBestServer } from '../utils/networkDiscovery';
 
 const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -150,6 +149,9 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
             console.log('🔒 [CHANNEL] WebRTC Fermé');
             updateConnectionStatus('disconnected');
             setIsConnected(false);
+            break;
+          default:
+            console.log(`[CHANNEL] État de connexion non géré: ${pc.connectionState}`);
             break;
         }
       };
@@ -358,8 +360,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
       console.log('[CHANNEL] Découverte du serveur...');
 
-      const server = await getBestServer();
-      const serverUrl = server.url;
+      const serverUrl = 'http://172.20.10.3:3001';
       
       console.log(`[CHANNEL] Connexion au serveur: ${serverUrl}`);
 
