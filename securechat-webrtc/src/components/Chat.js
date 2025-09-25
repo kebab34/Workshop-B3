@@ -1,4 +1,4 @@
-// src/components/Chat.js - Version avec support des canaux
+// src/components/Chat.js - Version avec historique séparé par canal
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
@@ -11,7 +11,12 @@ function Chat({ username, channel }) {
   const [hasAutoConnected, setHasAutoConnected] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // Fonction stable pour ajouter un message
+  // Générer une clé unique pour chaque canal
+  const getChannelStorageKey = useCallback((channelData) => {
+    return `chat-messages-${channelData.id || channelData.name}`;
+  }, []);
+
+  // Fonction stable pour ajouter un message avec stockage par canal
   const addMessage = useCallback((text, sender = username, type = 'text', saveToStorage = true) => {
     const newMessage = {
       id: Date.now() + Math.random(),
@@ -20,32 +25,63 @@ function Chat({ username, channel }) {
       timestamp: new Date(),
       type,
       encrypted: type !== 'system',
-      delivered: sender === username
+      delivered: sender === username,
+      channelId: channel.id || channel.name // Associer le message au canal
     };
     
     setMessages(prev => [...prev, newMessage]);
     
-    // Sauvegarder dans le localStorage
-    if (saveToStorage) {
+    // Sauvegarder dans le localStorage avec clé spécifique au canal
+    if (saveToStorage && channel) {
       try {
-        const savedMessages = JSON.parse(localStorage.getItem('chat-messages') || '[]');
+        const storageKey = getChannelStorageKey(channel);
+        const savedMessages = JSON.parse(localStorage.getItem(storageKey) || '[]');
         savedMessages.push(newMessage);
-        // Limiter à 1000 messages max
+        
+        // Limiter à 1000 messages max par canal
         if (savedMessages.length > 1000) {
           savedMessages.splice(0, savedMessages.length - 1000);
         }
-        localStorage.setItem('chat-messages', JSON.stringify(savedMessages));
+        localStorage.setItem(storageKey, JSON.stringify(savedMessages));
       } catch (error) {
         console.error('Erreur sauvegarde localStorage:', error);
       }
     }
-  }, [username]);
+  }, [username, channel, getChannelStorageKey]);
 
-  // Fonction pour effacer les messages localement
+  // Fonction pour charger l'historique d'un canal spécifique
+  const loadChannelHistory = useCallback((channelData) => {
+    try {
+      const storageKey = getChannelStorageKey(channelData);
+      const savedMessages = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      
+      if (savedMessages.length > 0) {
+        const loadedMessages = savedMessages
+          .filter(msg => msg.channelId === (channelData.id || channelData.name)) // Filtrer par canal
+          .map(msg => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }));
+        setMessages(loadedMessages);
+        console.log(`[CHAT] Chargé ${loadedMessages.length} messages pour le canal ${channelData.name}`);
+      } else {
+        setMessages([]);
+        console.log(`[CHAT] Aucun historique pour le canal ${channelData.name}`);
+      }
+    } catch (error) {
+      console.error('Erreur chargement messages:', error);
+      setMessages([]);
+    }
+  }, [getChannelStorageKey]);
+
+  // Fonction pour effacer l'historique du canal actuel
   const clearMessages = useCallback(() => {
     setMessages([]);
-    localStorage.removeItem('chat-messages');
-  }, []);
+    if (channel) {
+      const storageKey = getChannelStorageKey(channel);
+      localStorage.removeItem(storageKey);
+    }
+  }, [channel, getChannelStorageKey]);
 
   // Callbacks stables pour le hook WebRTC
   const handleMessageReceived = useCallback((message) => {
@@ -56,11 +92,18 @@ function Chat({ username, channel }) {
       clearMessages();
       addMessage('🗑️ Historique effacé par mesure de sécurité', 'System', 'system', false);
     } else {
-      // Message normal
-      console.log('📝 [CHAT] Ajout du message à l\'interface:', message.text, 'de', message.sender);
-      addMessage(message.text, message.sender, message.type, false);
+      // Message normal - vérifier qu'il appartient au bon canal
+      const messageChannelId = message.channelId || message.channel;
+      const currentChannelId = channel.id || channel.name;
+      
+      if (messageChannelId === currentChannelId) {
+        console.log('📝 [CHAT] Ajout du message à l\'interface:', message.text, 'de', message.sender);
+        addMessage(message.text, message.sender, message.type, false);
+      } else {
+        console.log('🚫 [CHAT] Message ignoré - canal différent:', messageChannelId, 'vs', currentChannelId);
+      }
     }
-  }, [addMessage, clearMessages]);
+  }, [addMessage, clearMessages, channel]);
 
   const handleConnectionStatusChange = useCallback((status) => {
     console.log('Status changed to:', status);
@@ -103,7 +146,7 @@ function Chat({ username, channel }) {
     }
   }, [currentChannel, channel, disconnect, joinChannel]);
 
-  // Fonction pour envoyer un message
+  // Fonction pour envoyer un message avec info du canal
   const sendMessage = useCallback((text, type = 'text') => {
     if (!text.trim()) return;
 
@@ -116,13 +159,24 @@ function Chat({ username, channel }) {
       channelUsers: channelUsers.length 
     });
 
-    // Ajouter immédiatement à notre interface
+    // Ajouter immédiatement à notre interface avec l'ID du canal
     addMessage(text, username, type);
     
-    // Envoyer via le hook WebRTC (il gère WebRTC + fallback Socket.IO)
+    // Envoyer via le hook WebRTC avec info du canal
     if (connectionStatus === 'connected' && currentChannel) {
       console.log(`[DEBUG] Tentative d'envoi via hook WebRTC...`);
-      const success = sendWebRTCMessage(text, type);
+      
+      // Créer le message avec info du canal
+      const messageWithChannel = {
+        text,
+        type,
+        sender: username,
+        timestamp: new Date().toISOString(),
+        channelId: channel.id || channel.name,
+        channel: channel.name
+      };
+      
+      const success = sendWebRTCMessage(messageWithChannel.text, messageWithChannel.type, messageWithChannel);
       if (!success) {
         console.log(`[DEBUG] Échec d'envoi complet`);
         addMessage('⚠️ Échec d\'envoi - Message stocké localement', 'System', 'system', false);
@@ -133,50 +187,43 @@ function Chat({ username, channel }) {
       console.log(`[DEBUG] Non prêt - Status: ${connectionStatus}, Canal: ${currentChannel?.name || 'aucun'}`);
       addMessage('📤 Message en attente de connexion...', 'System', 'system', false);
     }
-  }, [addMessage, username, isConnected, sendWebRTCMessage]);
+  }, [addMessage, username, isConnected, sendWebRTCMessage, connectionStatus, currentChannel, channelUsers.length, channel]);
 
   const sendEmergencyMessage = useCallback(() => {
     const emergencyText = '🚨 MESSAGE D\'URGENCE - Position compromise, besoin d\'aide immédiate !';
     sendMessage(emergencyText, 'emergency');
   }, [sendMessage]);
 
-  // Fonction pour effacer l'historique - SIMPLIFIÉE
+  // Fonction pour effacer l'historique du canal actuel
   const clearHistory = useCallback(() => {
-    if (window.confirm('Effacer tout l\'historique des messages ? Cette action est irréversible.')) {
+    if (window.confirm(`Effacer l'historique du canal "${channel.name}" ? Cette action est irréversible.`)) {
       // Effacer localement
       clearMessages();
       
       // Si connecté, envoyer signal d'effacement à l'autre participant
       if (isConnected) {
         sendWebRTCMessage('clear-history', 'clear-history');
-        addMessage('🗑️ Historique effacé pour tous les participants', 'System', 'system', false);
+        addMessage(`🗑️ Historique du canal "${channel.name}" effacé pour tous les participants`, 'System', 'system', false);
       } else {
-        addMessage('🗑️ Historique effacé localement', 'System', 'system', false);
+        addMessage(`🗑️ Historique du canal "${channel.name}" effacé localement`, 'System', 'system', false);
       }
     }
-  }, [clearMessages, isConnected, sendWebRTCMessage, addMessage]);
+  }, [clearMessages, isConnected, sendWebRTCMessage, addMessage, channel.name]);
 
-  // Charger l'historique et connexion initiale (une seule fois)
+  // Effet pour charger l'historique et connexion initiale quand le canal change
   useEffect(() => {
-    // Charger l'historique des messages
-    try {
-      const savedMessages = JSON.parse(localStorage.getItem('chat-messages') || '[]');
-      if (savedMessages.length > 0) {
-        const loadedMessages = savedMessages.map(msg => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        }));
-        setMessages(loadedMessages);
-      }
-    } catch (error) {
-      console.error('Erreur chargement messages:', error);
-    }
+    console.log(`[CHAT] Changement de canal vers: ${channel.name} (ID: ${channel.id})`);
     
-    // Message de bienvenue
-    addMessage('🛡️ SecureLink initialisé - Canal de communication sécurisé prêt', 'System', 'system', false);
+    // Charger l'historique du nouveau canal
+    loadChannelHistory(channel);
+    
+    // Message de bienvenue spécifique au canal
+    setTimeout(() => {
+      addMessage(`🛡️ Connexion au canal "${channel.name}" - Communications sécurisées activées`, 'System', 'system', false);
+    }, 100);
     
     // Connexion automatique unique avec support des canaux
-    if (!hasAutoConnected && channel) {
+    if (!hasAutoConnected) {
       setHasAutoConnected(true);
       setTimeout(async () => {
         console.log(`Connexion automatique et rejointure du canal ${channel.name}...`);
@@ -205,7 +252,7 @@ function Chat({ username, channel }) {
         }
       }, 1500);
     }
-  }, []);
+  }, [channel, loadChannelHistory, addMessage, hasAutoConnected, connect, joinChannel]);
 
   // Auto-scroll vers le bas quand nouveaux messages
   useEffect(() => {
@@ -295,7 +342,7 @@ function Chat({ username, channel }) {
           <button 
             className="clear-button"
             onClick={clearHistory}
-            title="Effacer l'historique"
+            title={`Effacer l'historique du canal "${channel.name}"`}
           >
             🗑️
           </button>
@@ -321,6 +368,7 @@ function Chat({ username, channel }) {
         <MessageList 
           messages={messages} 
           currentUser={username}
+          channelName={channel.name}
         />
         <div ref={messagesEndRef} />
       </div>
@@ -330,13 +378,15 @@ function Chat({ username, channel }) {
         onSendMessage={sendMessage}
         disabled={connectionStatus === 'disconnected'}
         connectionStatus={connectionStatus}
+        channelName={channel.name}
+        placeholder={`Message dans ${channel.name}...`}
       />
 
       {/* Info de debug en développement */}
       {process.env.NODE_ENV === 'development' && (
         <div className="debug-info">
           <small>
-            Status: {connectionStatus} | Messages: {messages.length} | Connected: {isConnected ? 'Yes' : 'No'}
+            Canal: {channel.name} | Messages: {messages.length} | Connected: {isConnected ? 'Yes' : 'No'} | Status: {connectionStatus}
           </small>
         </div>
       )}
