@@ -86,7 +86,6 @@ function App() {
           onViewCourses={handleViewCourses}
         />
       )}
-
       {currentView === 'courses' && (
         <SurvivalCoursesList 
           onBackToHome={handleBackToHome}

@@ -166,7 +166,7 @@ const SurvivalCourse = ({ course, onClose }) => {
               </span>
             </div>
           </div>
-          
+
           <button className="close-button" onClick={onClose}>
             ❌
           </button>
