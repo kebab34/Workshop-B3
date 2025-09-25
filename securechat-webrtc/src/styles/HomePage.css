@@ -26,6 +26,12 @@
   border: 1px solid #333;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .user-welcome h2 {
   margin: 0 0 0.5rem 0;
   color: #e0e0e0;
@@ -45,6 +51,33 @@
 .offline-indicator {
   color: #ff4444;
   font-style: italic;
+}
+
+/* Bouton d'accès aux cours de survie */
+.survival-courses-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #ff6b35 0%, #ff8c42 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 107, 53, 0.2);
+}
+
+.survival-courses-btn:hover {
+  background: linear-gradient(135deg, #ff8c42 0%, #ffaa55 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+}
+
+.survival-courses-btn:active {
+  transform: translateY(0);
 }
 
 /* Indicateur de connexion */
