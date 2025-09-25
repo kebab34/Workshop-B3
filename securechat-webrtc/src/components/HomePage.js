@@ -1,8 +1,10 @@
-// src/components/HomePage.js - Avec synchronisation temps réel des canaux créés
+// src/components/HomePage.js - Avec messages privés
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import CreateChannelModal from './CreateChannelModal';
 import JoinChannelModal from './JoinChannelModal';
+import PrivateMessageModal from './PrivateMessageModal';
+import usePrivateMessages from '../hooks/usePrivateMessages';
 import '../styles/HomePage.css';
 import { getBestServer } from '../utils/networkDiscovery';
 
@@ -64,8 +66,23 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [channelToJoin, setChannelToJoin] = useState(null);
 
+  // 🔥 NOUVEAUX ÉTATS POUR LES MESSAGES PRIVÉS
+  const [showPrivateMessageModal, setShowPrivateMessageModal] = useState(false);
+  const [privateMessageTarget, setPrivateMessageTarget] = useState(null);
+
   // Référence pour Socket.IO
   const socketRef = useRef(null);
+
+  // 🔥 HOOK POUR LES MESSAGES PRIVÉS
+  const {
+    sendPrivateMessage,
+    getConversation,
+    getUnreadCount,
+    getTotalUnreadCount,
+    markAsRead,
+    notifications,
+    removeNotification
+  } = usePrivateMessages(socketRef.current, username);
 
   // Séparer les canaux par défaut et personnalisés
   const defaultChannels = availableChannels.filter(channel => channel.isDefault);
@@ -137,18 +154,16 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         setUsersLoading(false);
       });
 
-      // 🔥 NOUVELLE GESTION DES CANAUX - Liste complète des canaux reçue
+      // Liste complète des canaux reçue
       socketRef.current.on('channels-list', (channelsFromServer) => {
         console.log('[HOMEPAGE] Liste complète des canaux reçue:', channelsFromServer);
         
-        // Fusionner les canaux par défaut (locaux) avec les canaux personnalisés (serveur)
+        // Fusionner les canaux par défaut avec les canaux personnalisés
         setAvailableChannels(prevChannels => {
-          // Garder les canaux par défaut
           const defaultChannelsOnly = prevChannels.filter(ch => ch.isDefault);
           
-          // Formater les canaux du serveur
           const serverChannels = channelsFromServer
-            .filter(ch => ch.isCustom) // Seulement les canaux personnalisés
+            .filter(ch => ch.isCustom)
             .map(channel => ({
               ...channel,
               isCustom: true,
@@ -166,7 +181,6 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         console.log('[HOMEPAGE] Utilisateur connecté:', user.username);
         
         setConnectedUsers(prev => {
-          // Éviter les doublons
           if (prev.some(u => u.username === user.username)) {
             return prev;
           }
@@ -190,13 +204,11 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         );
       });
 
-      // 🔥 NOUVEAU - Canal créé par un autre utilisateur
+      // Canal créé par un autre utilisateur
       socketRef.current.on('channel-created', (newChannel) => {
-        console.log('[HOMEPAGE] ✨ Nouveau canal créé par un autre utilisateur:', newChannel);
+        console.log('[HOMEPAGE] Nouveau canal créé:', newChannel);
         
-        // Ajouter le canal à la liste locale
         setAvailableChannels(prevChannels => {
-          // Vérifier si le canal n'existe pas déjà
           const channelExists = prevChannels.some(ch => ch.id === newChannel.id);
           if (channelExists) {
             console.log('[HOMEPAGE] Canal déjà présent, ignoré');
@@ -210,7 +222,7 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
             users: newChannel.users || 0
           };
           
-          console.log('[HOMEPAGE] 📢 Canal ajouté à l\'interface:', formattedChannel);
+          console.log('[HOMEPAGE] Canal ajouté à l\'interface:', formattedChannel);
           return [...prevChannels, formattedChannel];
         });
       });
@@ -245,7 +257,6 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         setUsersServerConnected(false);
         setUsersLoading(false);
         
-        // Afficher au moins l'utilisateur actuel
         setConnectedUsers([{
           id: username,
           username: username,
@@ -268,7 +279,6 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
       setUsersServerConnected(false);
       setUsersLoading(false);
       
-      // Fallback avec l'utilisateur actuel
       setConnectedUsers([{
         id: username,
         username: username,
@@ -279,16 +289,31 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
     }
   };
 
-  // Gérer les messages privés
+  // 🔥 NOUVELLE FONCTION - Gérer les messages privés
   const handleDirectMessage = (e, user) => {
     e.stopPropagation();
-    console.log('Message privé vers:', user.username);
-    alert(`Fonction de message privé vers ${user.username} - À implémenter !`);
+    console.log('[PM] Ouverture chat privé avec:', user.username);
+    setPrivateMessageTarget(user);
+    setShowPrivateMessageModal(true);
+    
+    // Marquer la conversation comme lue
+    markAsRead(user.username);
+  };
+
+  // 🔥 NOUVELLE FONCTION - Envoyer un message privé
+  const handleSendPrivateMessage = (message) => {
+    console.log('[PM] Envoi message privé:', message);
+    return sendPrivateMessage(message);
+  };
+
+  // 🔥 NOUVELLE FONCTION - Fermer le modal de message privé
+  const handleClosePrivateMessage = () => {
+    setShowPrivateMessageModal(false);
+    setPrivateMessageTarget(null);
   };
 
   // Rejoindre un canal
   const handleChannelClick = (channel) => {
-    // Notifier le serveur du changement de canal
     if (socketRef.current?.connected) {
       socketRef.current.emit('user-join-channel', {
         channelId: channel.id,
@@ -297,11 +322,9 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
     }
     
     if (channel.secure && channel.type !== 'public') {
-      // Canal protégé par mot de passe
       setChannelToJoin(channel);
       setShowJoinModal(true);
     } else {
-      // Canal public, rejoindre directement
       handleJoinChannel(channel);
     }
   };
@@ -309,7 +332,6 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
   const handleJoinChannel = (channel, password = null) => {
     setSelectedChannel(channel);
     
-    // Notifier le serveur du changement de canal
     if (socketRef.current?.connected) {
       socketRef.current.emit('user-join-channel', {
         channelId: channel.id,
@@ -317,49 +339,39 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
       });
     }
     
-    // Animation de transition
     setTimeout(() => {
       onJoinChannel(channel, password);
     }, 500);
   };
 
-  // 🔥 NOUVELLE FONCTION - Créer un nouveau canal avec synchronisation
+  // Créer un nouveau canal avec synchronisation
   const handleCreateChannel = async (channelData) => {
     try {
-      // Marquer le canal comme personnalisé
       const newChannel = {
         ...channelData,
         isCustom: true,
         isDefault: false,
         createdBy: username,
         createdAt: new Date().toISOString(),
-        users: 0 // Commencer avec 0 utilisateur
+        users: 0
       };
       
-      console.log('[HOMEPAGE] 🚀 Création d\'un nouveau canal:', newChannel);
+      console.log('[HOMEPAGE] Création d\'un nouveau canal:', newChannel);
       
-      // 1. Ajouter immédiatement à l'interface locale (optimistic update)
       setAvailableChannels(prev => [...prev, newChannel]);
       
-      // 2. Envoyer au serveur pour synchronisation avec tous les clients
       if (socketRef.current?.connected) {
-        console.log('[HOMEPAGE] 📡 Envoi du canal au serveur pour synchronisation...');
+        console.log('[HOMEPAGE] Envoi du canal au serveur pour synchronisation...');
         socketRef.current.emit('create-channel', newChannel);
-        
-        // Le serveur va diffuser un 'channel-created' à tous les autres clients
-        console.log('[HOMEPAGE] ✅ Canal envoyé au serveur pour diffusion');
+        console.log('[HOMEPAGE] Canal envoyé au serveur pour diffusion');
       } else {
-        console.log('[HOMEPAGE] ⚠️ Pas de connexion serveur, canal créé localement seulement');
-        // Afficher une notification que le canal ne sera visible que localement
-        alert('⚠️ Attention: Canal créé en mode hors-ligne. Il ne sera visible que sur cet appareil.');
+        console.log('[HOMEPAGE] Pas de connexion serveur, canal créé localement seulement');
+        alert('Attention: Canal créé en mode hors-ligne. Il ne sera visible que sur cet appareil.');
       }
       
     } catch (error) {
-      console.error('[HOMEPAGE] ❌ Erreur création canal:', error);
-      
-      // Annuler l'ajout optimiste en cas d'erreur
+      console.error('[HOMEPAGE] Erreur création canal:', error);
       setAvailableChannels(prev => prev.filter(ch => ch.id !== channelData.id));
-      
       throw error;
     }
   };
@@ -380,7 +392,6 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
       initializeSocket();
     }
 
-    // Nettoyage à la déconnexion
     return () => {
       if (socketRef.current) {
         console.log('[HOMEPAGE] Nettoyage connexion Socket.IO');
@@ -401,6 +412,39 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
 
   return (
     <div className={`home-page ${selectedChannel ? 'transitioning' : ''}`}>
+      {/* 🔥 NOTIFICATIONS DE MESSAGES PRIVÉS */}
+      {notifications.length > 0 && (
+        <div className="pm-notifications">
+          {notifications.slice(0, 3).map((notification) => (
+            <div
+              key={notification.id}
+              className="pm-notification"
+              onClick={() => {
+                const user = connectedUsers.find(u => u.username === notification.from);
+                if (user) handleDirectMessage({ stopPropagation: () => {} }, user);
+                removeNotification(notification.id);
+              }}
+            >
+              <div className="pm-notification-content">
+                <div className="pm-notification-header">
+                  <strong>{notification.from}</strong>
+                  <button
+                    className="pm-notification-close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeNotification(notification.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="pm-notification-text">{notification.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Header avec informations utilisateur */}
       <div className="home-header">
         <div className="user-welcome">
@@ -412,6 +456,14 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         </div>
         
         <div className="header-actions">
+          {/* 🔥 INDICATEUR DE MESSAGES PRIVÉS NON LUS */}
+          {getTotalUnreadCount() > 0 && (
+            <div className="pm-unread-indicator">
+              <span className="pm-unread-count">{getTotalUnreadCount()}</span>
+              <span className="pm-unread-label">messages privés</span>
+            </div>
+          )}
+
           {/* Bouton d'accès aux cours de survie */}
           <button 
             className="survival-courses-btn"
@@ -525,7 +577,7 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         </div>
       )}
 
-      {/* Section des utilisateurs connectés */}
+      {/* Section des utilisateurs connectés - 🔥 MODIFIÉE AVEC MESSAGES PRIVÉS */}
       <div className="connected-users-section">
         <div className="section-header">
           <h3>Utilisateurs Connectés</h3>
@@ -555,6 +607,12 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
                   <div className="user-name">
                     {user.username}
                     {user.username === username && <span className="you-badge">(Vous)</span>}
+                    {/* 🔥 NOUVEAU - Badge de messages non lus */}
+                    {getUnreadCount(user.username) > 0 && (
+                      <span className="pm-unread-badge">
+                        {getUnreadCount(user.username)}
+                      </span>
+                    )}
                   </div>
                   <div className="user-status">
                     {user.currentChannel ? (
@@ -571,11 +629,14 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
                 {user.username !== username && (
                   <div className="user-actions">
                     <button 
-                      className="direct-message-btn"
+                      className={`direct-message-btn ${getUnreadCount(user.username) > 0 ? 'has-unread' : ''}`}
                       onClick={(e) => handleDirectMessage(e, user)}
                       title="Message privé"
                     >
                       💬
+                      {getUnreadCount(user.username) > 0 && (
+                        <span className="dm-unread-count">{getUnreadCount(user.username)}</span>
+                      )}
                     </button>
                   </div>
                 )}
@@ -622,6 +683,17 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         }}
         onJoinChannel={handleJoinChannel}
         username={username}
+      />
+
+      {/* 🔥 NOUVEAU - Modal de message privé */}
+      <PrivateMessageModal
+        isOpen={showPrivateMessageModal}
+        onClose={handleClosePrivateMessage}
+        targetUser={privateMessageTarget}
+        currentUser={username}
+        socket={socketRef.current}
+        messages={privateMessageTarget ? getConversation(privateMessageTarget.username) : []}
+        onSendMessage={handleSendPrivateMessage}
       />
 
       {/* Indicateur de transition */}
