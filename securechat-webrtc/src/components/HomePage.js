@@ -4,8 +4,9 @@ import io from 'socket.io-client';
 import CreateChannelModal from './CreateChannelModal';
 import JoinChannelModal from './JoinChannelModal';
 import '../styles/HomePage.css';
+import { getBestServer } from '../utils/networkDiscovery';
 
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:3001';
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://172.20.10.3:3001';
 
 function HomePage({ username, onJoinChannel, onViewCourses }) {
   const [availableChannels, setAvailableChannels] = useState([
@@ -86,158 +87,188 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
     return `${days}j`;
   };
 
-  // Initialiser la connexion Socket.IO
-  const initializeSocket = () => {
-    console.log('[HOMEPAGE] Initialisation Socket.IO vers', SERVER_URL);
-    
-    socketRef.current = io(SERVER_URL, {
-      transports: ['websocket'],
-      timeout: 10000,
-      forceNew: true
-    });
-
-    // Connexion réussie
-    socketRef.current.on('connect', () => {
-      console.log('[HOMEPAGE] Connecté au serveur');
-      setUsersServerConnected(true);
-      setUsersError(null);
+  // 🔥 FONCTION CORRIGÉE - Initialiser la connexion Socket.IO avec découverte réseau
+  const initializeSocket = async () => {
+    try {
+      console.log('[HOMEPAGE] Découverte du serveur...');
       
-      // S'enregistrer auprès du serveur
-      socketRef.current.emit('register-user', {
-        username: username,
-        timestamp: new Date().toISOString()
+      // Utiliser la même logique de découverte que le Chat
+      const server = await getBestServer();
+      const serverUrl = server.url;
+      
+      console.log('[HOMEPAGE] Connexion au serveur découvert:', serverUrl);
+      
+      socketRef.current = io(serverUrl, {
+        transports: ['websocket'],
+        timeout: 10000,
+        forceNew: true
       });
-      
-      // Demander les données initiales
-      socketRef.current.emit('get-users-list');
-      socketRef.current.emit('get-channels-list');
-    });
 
-    // Liste des utilisateurs connectés reçue
-    socketRef.current.on('users-list', (users) => {
-      console.log('[HOMEPAGE] Liste utilisateurs reçue:', users);
-      
-      const formattedUsers = users.map(user => ({
-        id: user.id || user.username,
-        username: user.username,
-        status: user.status || 'online',
-        currentChannel: user.currentChannel || null,
-        connectedSince: new Date(user.connectedSince || user.timestamp || Date.now())
-      }));
-      
-      setConnectedUsers(formattedUsers);
-      setUsersLoading(false);
-    });
-
-    // 🔥 NOUVELLE GESTION DES CANAUX - Liste complète des canaux reçue
-    socketRef.current.on('channels-list', (channelsFromServer) => {
-      console.log('[HOMEPAGE] Liste complète des canaux reçue:', channelsFromServer);
-      
-      // Fusionner les canaux par défaut (locaux) avec les canaux personnalisés (serveur)
-      setAvailableChannels(prevChannels => {
-        // Garder les canaux par défaut
-        const defaultChannelsOnly = prevChannels.filter(ch => ch.isDefault);
+      // Connexion réussie
+      socketRef.current.on('connect', () => {
+        console.log('[HOMEPAGE] Connecté au serveur');
+        setUsersServerConnected(true);
+        setUsersError(null);
         
-        // Formater les canaux du serveur
-        const serverChannels = channelsFromServer
-          .filter(ch => ch.isCustom) // Seulement les canaux personnalisés
-          .map(channel => ({
-            ...channel,
-            isCustom: true,
-            isDefault: false,
-            users: channel.users || 0
-          }));
+        // S'enregistrer auprès du serveur
+        socketRef.current.emit('register-user', {
+          username: username,
+          timestamp: new Date().toISOString()
+        });
         
-        console.log('[HOMEPAGE] Canaux fusionnés:', [...defaultChannelsOnly, ...serverChannels]);
-        return [...defaultChannelsOnly, ...serverChannels];
+        // Demander les données initiales
+        socketRef.current.emit('get-users-list');
+        socketRef.current.emit('get-channels-list');
       });
-    });
 
-    // Nouvel utilisateur connecté
-    socketRef.current.on('user-joined', (user) => {
-      console.log('[HOMEPAGE] Utilisateur connecté:', user.username);
-      
-      setConnectedUsers(prev => {
-        // Éviter les doublons
-        if (prev.some(u => u.username === user.username)) {
-          return prev;
-        }
+      // Liste des utilisateurs connectés reçue
+      socketRef.current.on('users-list', (users) => {
+        console.log('[HOMEPAGE] Liste utilisateurs reçue:', users);
         
-        return [...prev, {
+        const formattedUsers = users.map(user => ({
           id: user.id || user.username,
           username: user.username,
+          status: user.status || 'online',
+          currentChannel: user.currentChannel || null,
+          connectedSince: new Date(user.connectedSince || user.timestamp || Date.now())
+        }));
+        
+        setConnectedUsers(formattedUsers);
+        setUsersLoading(false);
+      });
+
+      // 🔥 NOUVELLE GESTION DES CANAUX - Liste complète des canaux reçue
+      socketRef.current.on('channels-list', (channelsFromServer) => {
+        console.log('[HOMEPAGE] Liste complète des canaux reçue:', channelsFromServer);
+        
+        // Fusionner les canaux par défaut (locaux) avec les canaux personnalisés (serveur)
+        setAvailableChannels(prevChannels => {
+          // Garder les canaux par défaut
+          const defaultChannelsOnly = prevChannels.filter(ch => ch.isDefault);
+          
+          // Formater les canaux du serveur
+          const serverChannels = channelsFromServer
+            .filter(ch => ch.isCustom) // Seulement les canaux personnalisés
+            .map(channel => ({
+              ...channel,
+              isCustom: true,
+              isDefault: false,
+              users: channel.users || 0
+            }));
+          
+          console.log('[HOMEPAGE] Canaux fusionnés:', [...defaultChannelsOnly, ...serverChannels]);
+          return [...defaultChannelsOnly, ...serverChannels];
+        });
+      });
+
+      // Nouvel utilisateur connecté
+      socketRef.current.on('user-joined', (user) => {
+        console.log('[HOMEPAGE] Utilisateur connecté:', user.username);
+        
+        setConnectedUsers(prev => {
+          // Éviter les doublons
+          if (prev.some(u => u.username === user.username)) {
+            return prev;
+          }
+          
+          return [...prev, {
+            id: user.id || user.username,
+            username: user.username,
+            status: 'online',
+            currentChannel: null,
+            connectedSince: new Date(user.timestamp || Date.now())
+          }];
+        });
+      });
+
+      // Utilisateur déconnecté
+      socketRef.current.on('user-left', (user) => {
+        console.log('[HOMEPAGE] Utilisateur déconnecté:', user.username);
+        
+        setConnectedUsers(prev => 
+          prev.filter(u => u.username !== user.username)
+        );
+      });
+
+      // 🔥 NOUVEAU - Canal créé par un autre utilisateur
+      socketRef.current.on('channel-created', (newChannel) => {
+        console.log('[HOMEPAGE] ✨ Nouveau canal créé par un autre utilisateur:', newChannel);
+        
+        // Ajouter le canal à la liste locale
+        setAvailableChannels(prevChannels => {
+          // Vérifier si le canal n'existe pas déjà
+          const channelExists = prevChannels.some(ch => ch.id === newChannel.id);
+          if (channelExists) {
+            console.log('[HOMEPAGE] Canal déjà présent, ignoré');
+            return prevChannels;
+          }
+          
+          const formattedChannel = {
+            ...newChannel,
+            isCustom: true,
+            isDefault: false,
+            users: newChannel.users || 0
+          };
+          
+          console.log('[HOMEPAGE] 📢 Canal ajouté à l\'interface:', formattedChannel);
+          return [...prevChannels, formattedChannel];
+        });
+      });
+
+      // Statistiques des canaux mises à jour
+      socketRef.current.on('channel-stats', (stats) => {
+        console.log('[HOMEPAGE] Stats canaux:', stats);
+        
+        setAvailableChannels(prev => prev.map(channel => ({
+          ...channel,
+          users: stats[channel.id] || stats[channel.name] || 0
+        })));
+      });
+
+      // Utilisateur changé de canal
+      socketRef.current.on('user-channel-changed', ({ username: userName, channelName }) => {
+        console.log('[HOMEPAGE] Utilisateur changé de canal:', userName, '->', channelName);
+        
+        setConnectedUsers(prev => 
+          prev.map(user => 
+            user.username === userName 
+              ? { ...user, currentChannel: channelName }
+              : user
+          )
+        );
+      });
+
+      // Erreurs de connexion
+      socketRef.current.on('connect_error', (err) => {
+        console.error('[HOMEPAGE] Erreur connexion:', err);
+        setUsersError('Impossible de se connecter au serveur');
+        setUsersServerConnected(false);
+        setUsersLoading(false);
+        
+        // Afficher au moins l'utilisateur actuel
+        setConnectedUsers([{
+          id: username,
+          username: username,
           status: 'online',
           currentChannel: null,
-          connectedSince: new Date(user.timestamp || Date.now())
-        }];
+          connectedSince: new Date()
+        }]);
       });
-    });
 
-    // Utilisateur déconnecté
-    socketRef.current.on('user-left', (user) => {
-      console.log('[HOMEPAGE] Utilisateur déconnecté:', user.username);
-      
-      setConnectedUsers(prev => 
-        prev.filter(u => u.username !== user.username)
-      );
-    });
-
-    // 🔥 NOUVEAU - Canal créé par un autre utilisateur
-    socketRef.current.on('channel-created', (newChannel) => {
-      console.log('[HOMEPAGE] ✨ Nouveau canal créé par un autre utilisateur:', newChannel);
-      
-      // Ajouter le canal à la liste locale
-      setAvailableChannels(prevChannels => {
-        // Vérifier si le canal n'existe pas déjà
-        const channelExists = prevChannels.some(ch => ch.id === newChannel.id);
-        if (channelExists) {
-          console.log('[HOMEPAGE] Canal déjà présent, ignoré');
-          return prevChannels;
-        }
-        
-        const formattedChannel = {
-          ...newChannel,
-          isCustom: true,
-          isDefault: false,
-          users: newChannel.users || 0
-        };
-        
-        console.log('[HOMEPAGE] 📢 Canal ajouté à l\'interface:', formattedChannel);
-        return [...prevChannels, formattedChannel];
+      // Déconnexion du serveur
+      socketRef.current.on('disconnect', (reason) => {
+        console.log('[HOMEPAGE] Déconnecté du serveur:', reason);
+        setUsersServerConnected(false);
+        setUsersError('Connexion perdue avec le serveur');
       });
-    });
 
-    // Statistiques des canaux mises à jour
-    socketRef.current.on('channel-stats', (stats) => {
-      console.log('[HOMEPAGE] Stats canaux:', stats);
-      
-      setAvailableChannels(prev => prev.map(channel => ({
-        ...channel,
-        users: stats[channel.id] || stats[channel.name] || 0
-      })));
-    });
-
-    // Utilisateur changé de canal
-    socketRef.current.on('user-channel-changed', ({ username: userName, channelName }) => {
-      console.log('[HOMEPAGE] Utilisateur changé de canal:', userName, '->', channelName);
-      
-      setConnectedUsers(prev => 
-        prev.map(user => 
-          user.username === userName 
-            ? { ...user, currentChannel: channelName }
-            : user
-        )
-      );
-    });
-
-    // Erreurs de connexion
-    socketRef.current.on('connect_error', (err) => {
-      console.error('[HOMEPAGE] Erreur connexion:', err);
-      setUsersError('Impossible de se connecter au serveur');
+    } catch (error) {
+      console.error('[HOMEPAGE] Erreur découverte serveur:', error);
+      setUsersError('Impossible de trouver un serveur disponible');
       setUsersServerConnected(false);
       setUsersLoading(false);
       
-      // Afficher au moins l'utilisateur actuel
+      // Fallback avec l'utilisateur actuel
       setConnectedUsers([{
         id: username,
         username: username,
@@ -245,14 +276,7 @@ function HomePage({ username, onJoinChannel, onViewCourses }) {
         currentChannel: null,
         connectedSince: new Date()
       }]);
-    });
-
-    // Déconnexion du serveur
-    socketRef.current.on('disconnect', (reason) => {
-      console.log('[HOMEPAGE] Déconnecté du serveur:', reason);
-      setUsersServerConnected(false);
-      setUsersError('Connexion perdue avec le serveur');
-    });
+    }
   };
 
   // Gérer les messages privés
