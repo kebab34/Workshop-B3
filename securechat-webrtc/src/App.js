@@ -1,12 +1,13 @@
-// src/App.js - Version avec page d'accueil mise à jour
+// src/App.js - Version avec cours de survie intégrés
 import React, { useState } from 'react';
 import Chat from './components/Chat.js';
 import HomePage from './components/HomePage.js';
+import SurvivalCoursesList from './components/SurvivalCoursesList.js';
 import './styles/App.css';
 
 function App() {
   const [username, setUsername] = useState('');
-  const [currentView, setCurrentView] = useState('login'); // 'login', 'home', 'chat'
+  const [currentView, setCurrentView] = useState('login'); // 'login', 'home', 'chat', 'courses'
   const [selectedChannel, setSelectedChannel] = useState(null);
 
   const handleConnect = (name) => {
@@ -17,6 +18,10 @@ function App() {
   const handleJoinChannel = (channel) => {
     setSelectedChannel(channel);
     setCurrentView('chat');
+  };
+
+  const handleViewCourses = () => {
+    setCurrentView('courses');
   };
 
   const handleBackToHome = () => {
@@ -36,13 +41,15 @@ function App() {
         <div className="header-left">
           <h1>SecureLink</h1>
           <span className="tagline">
-            {currentView === 'chat' ? `Canal: ${selectedChannel?.name}` : 'Messagerie sécurisée post-Ultron'}
+            {currentView === 'chat' ? `Canal: ${selectedChannel?.name}` : 
+             currentView === 'courses' ? 'Formation à la survie' :
+             'Messagerie sécurisée post-Ultron'}
           </span>
         </div>
         
         {currentView !== 'login' && (
           <div className="header-controls">
-            {currentView === 'chat' && (
+            {(currentView === 'chat' || currentView === 'courses') && (
               <button 
                 className="back-button"
                 onClick={handleBackToHome}
@@ -76,6 +83,13 @@ function App() {
         <HomePage 
           username={username} 
           onJoinChannel={handleJoinChannel}
+          onViewCourses={handleViewCourses}
+        />
+      )}
+
+      {currentView === 'courses' && (
+        <SurvivalCoursesList 
+          onBackToHome={handleBackToHome}
         />
       )}
       

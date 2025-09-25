@@ -7,7 +7,7 @@ import '../styles/HomePage.css';
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:3001';
 
-function HomePage({ username, onJoinChannel }) {
+function HomePage({ username, onJoinChannel, onViewCourses }) {
   const [availableChannels, setAvailableChannels] = useState([
     // Canaux par défaut
     {
@@ -363,12 +363,23 @@ function HomePage({ username, onJoinChannel }) {
           </p>
         </div>
         
-        {/* Indicateur de connexion */}
-        <div className="connection-indicator">
-          <div className={`connection-dot ${usersServerConnected ? 'connected' : 'disconnected'}`}></div>
-          <span className="connection-text">
-            {usersServerConnected ? 'Connecté' : 'Hors ligne'}
-          </span>
+        <div className="header-actions">
+          {/* Bouton d'accès aux cours de survie */}
+          <button 
+            className="survival-courses-btn"
+            onClick={onViewCourses}
+            title="Accéder aux cours de survie"
+          >
+            🎯 Formation Survie
+          </button>
+          
+          {/* Indicateur de connexion */}
+          <div className="connection-indicator">
+            <div className={`connection-dot ${usersServerConnected ? 'connected' : 'disconnected'}`}></div>
+            <span className="connection-text">
+              {usersServerConnected ? 'Connecté' : 'Hors ligne'}
+            </span>
+          </div>
         </div>
       </div>
 
