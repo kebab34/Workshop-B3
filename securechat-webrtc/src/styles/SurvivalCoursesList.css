@@ -44,29 +44,37 @@
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: white;
-  padding: 12px 20px;
-  border-radius: 25px;
+  padding: 12px;
+  border-radius: 50%;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
   backdrop-filter: blur(10px);
   z-index: 2;
-  font-size: 0.9em;
+  font-size: 1.2em;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .back-to-chat:hover {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.4);
-  transform: translateX(-4px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.2);
 }
 
-.course-title {
-  margin: 0 0 10px 0;
-  font-size: 1.5em;
-  font-weight: bold;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.courses-title {
+  margin: 0 0 16px 0;
+  font-size: 3.2em;
+  font-weight: 800;
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 1;
 }
 
 .courses-subtitle {

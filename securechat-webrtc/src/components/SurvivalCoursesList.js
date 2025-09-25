@@ -25,7 +25,7 @@ const SurvivalCoursesList = ({ onBackToHome }) => {
         
         <div className="courses-header">
           <button className="back-to-chat" onClick={onBackToHome} title="Retour au chat">
-            ← Retour au Chat
+            🏠
           </button>
           
           <h2 className="courses-title">
