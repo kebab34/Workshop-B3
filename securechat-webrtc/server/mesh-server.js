@@ -1,4 +1,4 @@
-// mesh-server-unified.js - Serveur avec support des messages privés
+// mesh-server-unified.js - Serveur complet WebRTC + Synchronisation des canaux
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -28,12 +28,9 @@ let customChannels = new Map(); // channelId -> channel data
 let channelStats = new Map(); // channelId -> user count
 let channelUsers = new Map(); // channelId -> Set of usernames
 let userSockets = new Map(); // username -> socket.id
+let userChannelHistory = new Map(); // username -> derniers canaux visités
 
-// 🔥 NOUVEAU - Stockage pour les messages privés
-let privateMessages = new Map(); // "user1-user2" -> array of messages
-let userTypingStatus = new Map(); // username -> { to: username, typing: boolean }
-
-// Canaux par défaut
+// Canaux par défaut (pour les statistiques)
 const defaultChannels = ['general', 'emergency', 'recon', 'logistics'];
 defaultChannels.forEach(channelId => {
   channelStats.set(channelId, 0);
@@ -50,6 +47,7 @@ const broadcastUsersList = () => {
 };
 
 const broadcastChannelsList = () => {
+  // Inclure TOUS les canaux (défaut + personnalisés) avec leurs stats
   const customChannelsArray = Array.from(customChannels.values()).map(channel => ({
     ...channel,
     users: channelStats.get(channel.id) || 0,
@@ -75,6 +73,7 @@ const updateChannelUserCount = (channelId) => {
   const count = users.size;
   channelStats.set(channelId, count);
   
+  // Mettre à jour le canal personnalisé s'il existe
   if (customChannels.has(channelId)) {
     const channel = customChannels.get(channelId);
     channel.users = count;
@@ -83,40 +82,6 @@ const updateChannelUserCount = (channelId) => {
   
   console.log(`[STATS] Canal ${channelId}: ${count} utilisateurs`);
   return count;
-};
-
-// 🔥 NOUVELLES FONCTIONS POUR LES MESSAGES PRIVÉS
-const getConversationKey = (user1, user2) => {
-  return [user1, user2].sort().join('-');
-};
-
-const storePrivateMessage = (from, to, messageData) => {
-  const key = getConversationKey(from, to);
-  const messages = privateMessages.get(key) || [];
-  
-  const message = {
-    ...messageData,
-    from,
-    to,
-    timestamp: new Date().toISOString(),
-    delivered: false
-  };
-  
-  messages.push(message);
-  privateMessages.set(key, messages);
-  
-  // Limiter à 100 messages par conversation
-  if (messages.length > 100) {
-    messages.splice(0, messages.length - 100);
-  }
-  
-  return message;
-};
-
-const getPrivateMessages = (user1, user2, limit = 50) => {
-  const key = getConversationKey(user1, user2);
-  const messages = privateMessages.get(key) || [];
-  return messages.slice(-limit);
 };
 
 // ===============================================
@@ -128,7 +93,11 @@ io.on('connection', (socket) => {
   let currentUser = null;
   let currentChannel = null;
 
-  // Enregistrement d'un utilisateur
+  // ==========================================
+  // ÉVÉNEMENTS DE SYNCHRONISATION (HomePage)
+  // ==========================================
+  
+  // Enregistrement d'un utilisateur pour la synchronisation
   socket.on('register-user', (userData) => {
     console.log(`[SYNC] Enregistrement utilisateur:`, userData.username);
     
@@ -141,8 +110,10 @@ io.on('connection', (socket) => {
       connectedSince: userData.timestamp || new Date().toISOString()
     };
 
+    // Mettre à jour ou ajouter l'utilisateur
     const existingUser = connectedUsers.get(userData.username);
     if (existingUser) {
+      // Utilisateur existant - mettre à jour le socket
       user.connectedSince = existingUser.connectedSince;
       user.currentChannel = existingUser.currentChannel;
     }
@@ -152,6 +123,7 @@ io.on('connection', (socket) => {
     socket.username = userData.username;
     currentUser = userData.username;
     
+    // Notifier les autres utilisateurs (nouveaux seulement)
     if (!existingUser) {
       socket.broadcast.emit('user-joined', user);
       console.log(`[SYNC] Nouvel utilisateur ${userData.username} ajouté`);
@@ -159,17 +131,107 @@ io.on('connection', (socket) => {
       console.log(`[SYNC] Utilisateur ${userData.username} reconnecté`);
     }
     
+    // Envoyer les données au client
     socket.emit('users-list', Array.from(connectedUsers.values()));
     socket.emit('channels-list', Array.from(customChannels.values()));
     broadcastChannelStats();
   });
 
-  // Enregistrement WebRTC
+  // 🔥 CRÉATION D'UN CANAL - Point clé pour la synchronisation
+  socket.on('create-channel', (channelData) => {
+    console.log(`[CANAL] 🚀 Nouveau canal créé par ${socket.username}:`, channelData.name);
+    
+    const channel = {
+      ...channelData,
+      createdAt: new Date().toISOString(),
+      users: 0,
+      isCustom: true,
+      createdBy: socket.username || channelData.createdBy
+    };
+    
+    // Stocker le canal
+    customChannels.set(channel.id, channel);
+    channelStats.set(channel.id, 0);
+    channelUsers.set(channel.id, new Set());
+    
+    console.log(`[CANAL] ✅ Canal ${channel.name} (${channel.id}) stocké sur le serveur`);
+    console.log(`[CANAL] 📊 Total de canaux personnalisés: ${customChannels.size}`);
+    
+    // 🔥 DIFFUSER À TOUS LES CLIENTS (sauf celui qui l'a créé)
+    socket.broadcast.emit('channel-created', channel);
+    console.log(`[CANAL] 📡 Canal diffusé à tous les autres clients`);
+    
+    // Diffuser la liste mise à jour
+    broadcastChannelsList();
+    broadcastChannelStats();
+    
+    // Confirmer au créateur
+    socket.emit('channel-creation-confirmed', { 
+      channelId: channel.id, 
+      success: true 
+    });
+  });
+
+  // Utilisateur rejoint un canal (depuis HomePage)
+  socket.on('user-join-channel', (data) => {
+    const { channelId, channelName } = data;
+    const username = socket.username;
+    
+    if (!username) {
+      console.log(`[CANAL] Tentative de rejoindre ${channelName} sans utilisateur identifié`);
+      return;
+    }
+    
+    console.log(`[CANAL] ${username} rejoint le canal ${channelName} (${channelId})`);
+    
+    // Mettre à jour l'utilisateur
+    const user = connectedUsers.get(username);
+    if (user) {
+      // Quitter l'ancien canal (statistiques)
+      if (user.currentChannel && user.currentChannel !== channelName) {
+        const oldChannelId = user.currentChannel;
+        const oldChannelUsers = channelUsers.get(oldChannelId) || new Set();
+        oldChannelUsers.delete(username);
+        updateChannelUserCount(oldChannelId);
+        
+        console.log(`[CANAL] ${username} a quitté ${oldChannelId}`);
+      }
+      
+      // Rejoindre le nouveau canal
+      user.currentChannel = channelName;
+      connectedUsers.set(username, user);
+      
+      // Mettre à jour les stats du nouveau canal
+      const newChannelUsers = channelUsers.get(channelId) || channelUsers.get(channelName) || new Set();
+      newChannelUsers.add(username);
+      channelUsers.set(channelId, newChannelUsers);
+      channelUsers.set(channelName, newChannelUsers);
+      
+      updateChannelUserCount(channelId);
+      if (channelId !== channelName) {
+        updateChannelUserCount(channelName);
+      }
+      
+      console.log(`[CANAL] ${username} maintenant dans ${channelName}, ${newChannelUsers.size} utilisateurs total`);
+    }
+    
+    // Notifier tous les clients
+    io.emit('user-channel-changed', { username, channelName });
+    broadcastChannelStats();
+    broadcastUsersList();
+  });
+
+  // ==========================================
+  // ÉVÉNEMENTS WEBRTC (Chat)
+  // ==========================================
+  
+  // Enregistrement d'un utilisateur pour WebRTC
   socket.on('register', (username) => {
     console.log(`[WEBRTC] Enregistrement WebRTC: ${username}`);
     socket.username = username;
     currentUser = username;
     
+    // Si pas déjà enregistré pour la sync, l'ajouter
     if (!connectedUsers.has(username)) {
       const user = {
         id: socket.id,
@@ -184,214 +246,71 @@ io.on('connection', (socket) => {
       userSockets.set(username, socket.id);
       socket.broadcast.emit('user-joined', user);
       broadcastUsersList();
-    }
-  });
-
-  // 🔥 NOUVEAU - Envoi de message privé
-  socket.on('private-message', (data) => {
-    const { to, from, text, timestamp, id } = data;
-    console.log(`[PM] Message privé de ${from} vers ${to}: ${text}`);
-    
-    // Stocker le message
-    const message = storePrivateMessage(from, to, { text, timestamp, id });
-    
-    // Trouver le socket du destinataire
-    const recipientSocketId = userSockets.get(to);
-    if (recipientSocketId) {
-      const recipientSocket = io.sockets.sockets.get(recipientSocketId);
-      if (recipientSocket) {
-        // Envoyer le message au destinataire
-        recipientSocket.emit('private-message', {
-          from,
-          text,
-          timestamp,
-          id
-        });
-        
-        // Confirmer la livraison à l'expéditeur
-        socket.emit('private-message-delivered', {
-          messageId: id,
-          to,
-          deliveredAt: new Date().toISOString()
-        });
-        
-        console.log(`[PM] Message livré à ${to}`);
-      } else {
-        console.log(`[PM] Socket introuvable pour ${to}`);
-        socket.emit('private-message-failed', {
-          messageId: id,
-          to,
-          error: 'Utilisateur hors ligne'
-        });
-      }
-    } else {
-      console.log(`[PM] Utilisateur ${to} non connecté`);
-      socket.emit('private-message-failed', {
-        messageId: id,
-        to,
-        error: 'Utilisateur non connecté'
-      });
-    }
-  });
-
-  // 🔥 NOUVEAU - Indicateur "en train de taper"
-  socket.on('private-typing-start', (data) => {
-    const { to, from } = data;
-    console.log(`[PM] ${from} tape un message à ${to}`);
-    
-    userTypingStatus.set(from, { to, typing: true });
-    
-    const recipientSocketId = userSockets.get(to);
-    if (recipientSocketId) {
-      const recipientSocket = io.sockets.sockets.get(recipientSocketId);
-      if (recipientSocket) {
-        recipientSocket.emit('private-typing-start', { from });
-      }
-    }
-  });
-
-  socket.on('private-typing-stop', (data) => {
-    const { to, from } = data;
-    console.log(`[PM] ${from} a arrêté de taper à ${to}`);
-    
-    userTypingStatus.delete(from);
-    
-    const recipientSocketId = userSockets.get(to);
-    if (recipientSocketId) {
-      const recipientSocket = io.sockets.sockets.get(recipientSocketId);
-      if (recipientSocket) {
-        recipientSocket.emit('private-typing-stop', { from });
-      }
-    }
-  });
-
-  // 🔥 NOUVEAU - Récupération de l'historique des messages privés
-  socket.on('get-private-messages', (data) => {
-    const { with: otherUser, limit } = data;
-    const username = socket.username;
-    
-    if (!username || !otherUser) return;
-    
-    console.log(`[PM] Récupération messages privés entre ${username} et ${otherUser}`);
-    
-    const messages = getPrivateMessages(username, otherUser, limit);
-    socket.emit('private-messages-history', {
-      with: otherUser,
-      messages
-    });
-  });
-
-  // Création d'un canal
-  socket.on('create-channel', (channelData) => {
-    console.log('[CANAL] Nouveau canal créé:', channelData.name);
-    
-    const channel = {
-      ...channelData,
-      createdAt: new Date().toISOString(),
-      users: 0
-    };
-    
-    customChannels.set(channel.id, channel);
-    channelStats.set(channel.id, 0);
-    channelUsers.set(channel.id, new Set());
-    
-    socket.broadcast.emit('channel-created', channel);
-    broadcastChannelsList();
-    
-    socket.emit('channel-creation-confirmed', { 
-      channelId: channel.id, 
-      success: true 
-    });
-  });
-
-  // Rejoindre un canal (HomePage)
-  socket.on('user-join-channel', (data) => {
-    const { channelId, channelName } = data;
-    const username = socket.username;
-    
-    if (!username) return;
-    
-    console.log(`[CANAL] ${username} rejoint le canal ${channelName} (${channelId})`);
-    
-    const user = connectedUsers.get(username);
-    if (user) {
-      if (user.currentChannel && user.currentChannel !== channelName) {
-        const oldChannelId = user.currentChannel;
-        const oldChannelUsers = channelUsers.get(oldChannelId) || new Set();
-        oldChannelUsers.delete(username);
-        updateChannelUserCount(oldChannelId);
-        
-        console.log(`[CANAL] ${username} a quitté ${oldChannelId}`);
-      }
       
-      user.currentChannel = channelName;
-      connectedUsers.set(username, user);
-      
-      const newChannelUsers = channelUsers.get(channelId) || channelUsers.get(channelName) || new Set();
-      newChannelUsers.add(username);
-      channelUsers.set(channelId, newChannelUsers);
-      channelUsers.set(channelName, newChannelUsers);
-      
-      updateChannelUserCount(channelId);
-      if (channelId !== channelName) {
-        updateChannelUserCount(channelName);
-      }
-      
-      console.log(`[CANAL] ${username} maintenant dans ${channelName}, ${newChannelUsers.size} utilisateurs total`);
+      console.log(`[WEBRTC] Nouvel utilisateur ${username} ajouté via WebRTC`);
     }
-    
-    io.emit('user-channel-changed', { username, channelName });
-    broadcastChannelStats();
-    broadcastUsersList();
   });
 
-  // Rejoindre un canal WebRTC
+  // Rejoindre un canal pour WebRTC
   socket.on('join-channel', (data) => {
     const { channelId, channelName } = data;
     const username = socket.username;
     
-    if (!username) return;
+    if (!username) {
+      console.log(`[WEBRTC] Tentative de rejoindre le canal WebRTC sans utilisateur`);
+      return;
+    }
     
     console.log(`[WEBRTC] ${username} rejoint le canal WebRTC: ${channelName}`);
     
+    // Quitter l'ancien canal WebRTC
     if (currentChannel) {
       socket.leave(currentChannel);
       const oldUsers = channelUsers.get(currentChannel) || new Set();
       oldUsers.delete(username);
       updateChannelUserCount(currentChannel);
       
+      // Notifier l'ancien canal
       socket.to(currentChannel).emit('user-left-channel', {
         username: username,
         channelId: currentChannel
       });
+      
+      console.log(`[WEBRTC] ${username} a quitté l'ancien canal ${currentChannel}`);
     }
     
+    // Rejoindre le nouveau canal WebRTC
     currentChannel = channelId || channelName;
     socket.join(currentChannel);
     
+    // Mettre à jour les utilisateurs du canal
     const channelUserSet = channelUsers.get(currentChannel) || new Set();
     channelUserSet.add(username);
     channelUsers.set(currentChannel, channelUserSet);
     updateChannelUserCount(currentChannel);
     
+    // Mettre à jour l'utilisateur dans la liste générale
     const user = connectedUsers.get(username);
     if (user) {
       user.currentChannel = channelName;
       connectedUsers.set(username, user);
     }
     
+    // Notifier le nouveau canal
     socket.to(currentChannel).emit('user-joined-channel', {
       username: username,
       channelId: currentChannel
     });
     
+    // Envoyer la liste des utilisateurs du canal
     const users = getChannelUsers(currentChannel);
     io.to(currentChannel).emit('channel-users', users);
     
+    // Mettre à jour les stats globales
     broadcastChannelStats();
     broadcastUsersList();
     
-    console.log(`[WEBRTC] ${username} dans le canal ${currentChannel}, ${users.length} utilisateurs`);
+    console.log(`[WEBRTC] ${username} connecté au canal ${currentChannel}, ${users.length} utilisateurs`);
   });
 
   // Quitter un canal
@@ -401,15 +320,18 @@ io.on('connection', (socket) => {
       
       socket.leave(currentChannel);
       
+      // Mettre à jour les stats du canal
       const channelUserSet = channelUsers.get(currentChannel) || new Set();
       channelUserSet.delete(socket.username);
       updateChannelUserCount(currentChannel);
       
+      // Notifier le canal
       socket.to(currentChannel).emit('user-left-channel', {
         username: socket.username,
         channelId: currentChannel
       });
       
+      // Mettre à jour l'utilisateur
       const user = connectedUsers.get(socket.username);
       if (user) {
         user.currentChannel = null;
@@ -419,10 +341,12 @@ io.on('connection', (socket) => {
       currentChannel = null;
       broadcastChannelStats();
       broadcastUsersList();
+      
+      console.log(`[WEBRTC] ${socket.username} a quitté le canal mais reste connecté`);
     }
   });
 
-  // Signalisation WebRTC
+  // Offre WebRTC
   socket.on('offer', (data) => {
     console.log(`[WEBRTC] Offre de ${data.from} pour le canal ${data.channelId}`);
     if (currentChannel) {
@@ -430,6 +354,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Réponse WebRTC
   socket.on('answer', (data) => {
     console.log(`[WEBRTC] Réponse de ${data.from} pour le canal ${data.channelId}`);
     if (currentChannel) {
@@ -437,13 +362,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Candidats ICE
   socket.on('ice-candidate', (data) => {
     if (currentChannel) {
       socket.to(currentChannel).emit('ice-candidate', data);
     }
   });
 
-  // Messages de canal via Socket.IO
+  // Messages via Socket.IO (fallback)
   socket.on('send-message', (message) => {
     if (currentChannel) {
       console.log(`[MESSAGE] ${message.sender} dans ${currentChannel}: ${message.text}`);
@@ -451,16 +377,22 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Événements génériques
+  // ==========================================
+  // ÉVÉNEMENTS GÉNÉRIQUES
+  // ==========================================
+  
   socket.on('get-users-list', () => {
+    console.log(`[API] Demande de liste utilisateurs par ${socket.username}`);
     socket.emit('users-list', Array.from(connectedUsers.values()));
   });
 
   socket.on('get-channels-list', () => {
+    console.log(`[API] Demande de liste canaux par ${socket.username}`);
     socket.emit('channels-list', Array.from(customChannels.values()));
   });
 
   socket.on('get-channel-stats', () => {
+    console.log(`[API] Demande de stats canaux par ${socket.username}`);
     broadcastChannelStats();
   });
 
@@ -468,29 +400,16 @@ io.on('connection', (socket) => {
     socket.emit('pong');
   });
 
-  // Déconnexion
+  // ==========================================
+  // GESTION DE LA DÉCONNEXION
+  // ==========================================
   socket.on('disconnect', (reason) => {
     const username = socket.username;
     
     if (username) {
-      console.log(`[SERVER] Déconnexion de ${username}: ${reason}`);
+      console.log(`[SERVER] 👋 Déconnexion de ${username}: ${reason}`);
       
-      // Arrêter l'indicateur de frappe
-      userTypingStatus.delete(username);
-      
-      // Notifier tous les utilisateurs avec qui il était en train de taper
-      for (const [user, typingData] of userTypingStatus.entries()) {
-        if (typingData.to === username) {
-          const userSocketId = userSockets.get(user);
-          if (userSocketId) {
-            const userSocket = io.sockets.sockets.get(userSocketId);
-            if (userSocket) {
-              userSocket.emit('private-typing-stop', { from: username });
-            }
-          }
-        }
-      }
-      
+      // Quitter le canal actuel
       if (currentChannel) {
         const channelUserSet = channelUsers.get(currentChannel) || new Set();
         channelUserSet.delete(username);
@@ -500,6 +419,8 @@ io.on('connection', (socket) => {
           username: username,
           channelId: currentChannel
         });
+        
+        console.log(`[SERVER] ${username} retiré du canal ${currentChannel}`);
       }
       
       // Supprimer l'utilisateur des listes
@@ -539,44 +460,12 @@ app.get('/api/channel/:channelId/users', (req, res) => {
   res.json(users);
 });
 
-// 🔥 NOUVELLE API - Messages privés
-app.get('/api/private-messages/:user1/:user2', (req, res) => {
-  const { user1, user2 } = req.params;
-  const limit = parseInt(req.query.limit) || 50;
-  
-  const messages = getPrivateMessages(user1, user2, limit);
-  res.json({
-    conversation: `${user1}-${user2}`,
-    messages,
-    count: messages.length
-  });
-});
-
-// 🔥 NOUVELLE API - Statistiques des messages privés
-app.get('/api/private-messages-stats', (req, res) => {
-  const conversationCount = privateMessages.size;
-  let totalMessages = 0;
-  
-  for (const messages of privateMessages.values()) {
-    totalMessages += messages.length;
-  }
-  
-  res.json({
-    conversations: conversationCount,
-    totalMessages,
-    activeTypingUsers: userTypingStatus.size
-  });
-});
-
 app.get('/api/stats', (req, res) => {
   const stats = {
     connectedUsers: connectedUsers.size,
     customChannels: customChannels.size,
     totalChannels: customChannels.size + defaultChannels.length,
     channelStats: Object.fromEntries(channelStats),
-    privateConversations: privateMessages.size,
-    totalPrivateMessages: Array.from(privateMessages.values()).reduce((sum, msgs) => sum + msgs.length, 0),
-    activeTypingUsers: userTypingStatus.size,
     serverUptime: process.uptime(),
     timestamp: new Date().toISOString()
   };
@@ -589,10 +478,9 @@ app.get('/health', (req, res) => {
     status: 'OK',
     connectedUsers: connectedUsers.size,
     customChannels: customChannels.size,
-    privateConversations: privateMessages.size,
-    mode: 'unified-mesh-sync-pm',
-    features: ['webrtc', 'sync', 'channels', 'private-messages'],
-    version: '2.2.0',
+    mode: 'unified-mesh-sync',
+    features: ['webrtc', 'sync', 'channels'],
+    version: '2.1.0',
     timestamp: new Date().toISOString()
   });
 });
@@ -601,26 +489,17 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     name: 'SecureChat Unified Server',
-    version: '2.2.0',
-    features: [
-      'WebRTC signaling', 
-      'User synchronization', 
-      'Channel management', 
-      'Private messaging',
-      'Real-time typing indicators'
-    ],
+    version: '2.1.0',
+    features: ['WebRTC signaling', 'User synchronization', 'Channel management', 'Real-time sync'],
     endpoints: {
       health: '/health',
       users: '/api/users',
       channels: '/api/channels', 
-      stats: '/api/stats',
-      privateMessages: '/api/private-messages/:user1/:user2',
-      privateStats: '/api/private-messages-stats'
+      stats: '/api/stats'
     },
     statistics: {
       connectedUsers: connectedUsers.size,
       customChannels: customChannels.size,
-      privateConversations: privateMessages.size,
       uptime: Math.floor(process.uptime())
     }
   });
@@ -631,24 +510,22 @@ app.get('/', (req, res) => {
 // ===============================================
 setInterval(() => {
   const oneHourAgo = Date.now() - (60 * 60 * 1000);
-  const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-  
   let deletedChannels = 0;
-  let deletedMessages = 0;
   
-  // Nettoyage des canaux inactifs
   for (const [channelId, channel] of customChannels.entries()) {
     const channelUserCount = channelStats.get(channelId) || 0;
     const channelAge = Date.now() - new Date(channel.createdAt).getTime();
     
+    // Supprimer les canaux vides et anciens (sauf si autoDelete est false)
     if (channelUserCount === 0 && channelAge > oneHourAgo && channel.autoDelete !== false) {
-      console.log(`[CLEANUP] Suppression du canal vide: ${channel.name}`);
+      console.log(`[CLEANUP] Suppression du canal vide: ${channel.name} (${channelAge/1000/60} min d'âge)`);
       
       customChannels.delete(channelId);
       channelStats.delete(channelId);
       channelUsers.delete(channelId);
       deletedChannels++;
       
+      // Notifier tous les clients
       io.emit('channel-deleted', { 
         channelId, 
         channelName: channel.name,
@@ -657,83 +534,52 @@ setInterval(() => {
     }
   }
   
-  // 🔥 NOUVEAU - Nettoyage des anciens messages privés
-  for (const [conversationKey, messages] of privateMessages.entries()) {
-    const filteredMessages = messages.filter(msg => {
-      const messageAge = Date.now() - new Date(msg.timestamp).getTime();
-      return messageAge < oneDayAgo; // Garder les messages de moins de 24h
-    });
-    
-    if (filteredMessages.length !== messages.length) {
-      const deleted = messages.length - filteredMessages.length;
-      deletedMessages += deleted;
-      
-      if (filteredMessages.length === 0) {
-        privateMessages.delete(conversationKey);
-      } else {
-        privateMessages.set(conversationKey, filteredMessages);
-      }
-      
-      console.log(`[CLEANUP] Suppression de ${deleted} anciens messages privés dans ${conversationKey}`);
-    }
-  }
-  
-  // Nettoyage des statuts de frappe orphelins
-  const activeUsers = Array.from(connectedUsers.keys());
-  for (const [username, typingData] of userTypingStatus.entries()) {
-    if (!activeUsers.includes(username) || !activeUsers.includes(typingData.to)) {
-      userTypingStatus.delete(username);
-    }
-  }
-  
-  if (deletedChannels > 0 || deletedMessages > 0) {
-    console.log(`[CLEANUP] Nettoyage terminé: ${deletedChannels} canaux, ${deletedMessages} messages privés supprimés`);
-    if (deletedChannels > 0) {
-      broadcastChannelsList();
-      broadcastChannelStats();
-    }
+  if (deletedChannels > 0) {
+    console.log(`[CLEANUP] ${deletedChannels} canaux supprimés`);
+    broadcastChannelsList();
+    broadcastChannelStats();
   }
   
 }, 10 * 60 * 1000); // Toutes les 10 minutes
 
 // Statistiques périodiques
 setInterval(() => {
-  console.log(`[STATS] Utilisateurs: ${connectedUsers.size}, Canaux: ${customChannels.size}, Messages privés: ${Array.from(privateMessages.values()).reduce((sum, msgs) => sum + msgs.length, 0)}, Uptime: ${Math.floor(process.uptime())}s`);
-}, 5 * 60 * 1000);
+  console.log(`[STATS] Utilisateurs: ${connectedUsers.size}, Canaux: ${customChannels.size}, Uptime: ${Math.floor(process.uptime())}s`);
+}, 5 * 60 * 1000); // Toutes les 5 minutes
 
 // ===============================================
 // DÉMARRAGE DU SERVEUR
 // ===============================================
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`[SERVER] 🚀 SecureChat Unified Server v2.2.0 démarré sur le port ${PORT}`);
+  console.log(`[SERVER] 🚀 SecureChat Unified Server v2.1.0 démarré sur le port ${PORT}`);
   console.log(`[SERVER] 🏥 Health check: http://localhost:${PORT}/health`);
   console.log(`[SERVER] 👥 API Users: http://localhost:${PORT}/api/users`);
   console.log(`[SERVER] 📡 API Channels: http://localhost:${PORT}/api/channels`);
-  console.log(`[SERVER] 💬 API Private Messages: http://localhost:${PORT}/api/private-messages/:user1/:user2`);
   console.log(`[SERVER] 📊 API Stats: http://localhost:${PORT}/api/stats`);
-  console.log(`[SERVER] ⚡ Features: WebRTC + Synchronisation + Canaux + Messages privés`);
-  console.log(`[SERVER] 🔄 Nettoyage automatique: canaux inactifs (10min) + messages privés (24h)`);
+  console.log(`[SERVER] ⚡ Features: WebRTC + Synchronisation temps réel + Gestion des canaux`);
   console.log(`[SERVER] 🌐 CORS: Activé pour tous les domaines (développement)`);
+  console.log(`[SERVER] 🔄 Nettoyage automatique des canaux inactifs: 10 min`);
 });
 
 // Gestion propre de l'arrêt
 process.on('SIGINT', () => {
   console.log('\n[SERVER] 🛑 Arrêt du serveur unifié...');
   
+  // Sauvegarder les statistiques finales
   console.log(`[SERVER] 📊 Statistiques finales:`);
   console.log(`  - Utilisateurs connectés: ${connectedUsers.size}`);
   console.log(`  - Canaux personnalisés: ${customChannels.size}`);
-  console.log(`  - Conversations privées: ${privateMessages.size}`);
-  console.log(`  - Messages privés total: ${Array.from(privateMessages.values()).reduce((sum, msgs) => sum + msgs.length, 0)}`);
   console.log(`  - Uptime total: ${Math.floor(process.uptime())}s`);
   
+  // Notifier tous les clients
   io.emit('server-shutdown', { 
     message: 'Serveur en cours d\'arrêt - Reconnexion automatique...',
     timestamp: new Date().toISOString(),
     reconnectDelay: 3000
   });
   
+  // Fermer les connexions
   setTimeout(() => {
     io.close(() => {
       console.log('[SERVER] ✅ Toutes les connexions fermées proprement');
@@ -742,12 +588,15 @@ process.on('SIGINT', () => {
   }, 1000);
 });
 
+// Gestion des erreurs non capturées
 process.on('uncaughtException', (err) => {
   console.error('[SERVER] ❌ Erreur non capturée:', err);
+  // Ne pas arrêter le serveur pour une erreur simple
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[SERVER] ❌ Promesse rejetée non gérée:', reason);
+  // Ne pas arrêter le serveur pour une promesse rejetée
 });
 
 module.exports = { app, server, io };
