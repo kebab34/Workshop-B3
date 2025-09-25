@@ -49,7 +49,7 @@ function Chat({ username, channel }) {
 
   // Callbacks stables pour le hook WebRTC
   const handleMessageReceived = useCallback((message) => {
-    console.log('Message reçu via WebRTC:', message);
+    console.log('📨 [CHAT] Message reçu dans handleMessageReceived:', message);
     
     // Si c'est un signal d'effacement, effacer aussi localement
     if (message.type === 'clear-history') {
@@ -57,6 +57,7 @@ function Chat({ username, channel }) {
       addMessage('🗑️ Historique effacé par mesure de sécurité', 'System', 'system', false);
     } else {
       // Message normal
+      console.log('📝 [CHAT] Ajout du message à l\'interface:', message.text, 'de', message.sender);
       addMessage(message.text, message.sender, message.type, false);
     }
   }, [addMessage, clearMessages]);

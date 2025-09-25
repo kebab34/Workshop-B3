@@ -411,8 +411,23 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
       socketRef.current.on('message-received', (message) => {
         console.log('[CHANNEL] Message reçu via Socket.IO:', message);
-        if (message.channelId === currentChannel?.id && onMessageReceived) {
+        console.log('[CHANNEL] 🔍 Vérification canal:', {
+          messageChannelId: message.channelId,
+          currentChannelId: currentChannel?.id,
+          hasCallback: !!onMessageReceived,
+          channelMatch: message.channelId === currentChannel?.id
+        });
+        
+        // Accepter les messages si on a un callback (même si currentChannel est temporairement null)
+        if (onMessageReceived && (message.channelId === currentChannel?.id || !currentChannel)) {
+          console.log('[CHANNEL] ✅ Message transmis à l\'interface');
           onMessageReceived(message);
+        } else {
+          console.log('[CHANNEL] ❌ Message ignoré:', {
+            hasCallback: !!onMessageReceived,
+            messageChannel: message.channelId,
+            currentChannel: currentChannel?.id
+          });
         }
       });
 
