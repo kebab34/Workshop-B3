@@ -1,4 +1,3 @@
-// mesh-server-unified.js - Serveur complet WebRTC + Synchronisation des canaux
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -47,7 +46,6 @@ const broadcastUsersList = () => {
 };
 
 const broadcastChannelsList = () => {
-  // Inclure TOUS les canaux (défaut + personnalisés) avec leurs stats
   const customChannelsArray = Array.from(customChannels.values()).map(channel => ({
     ...channel,
     users: channelStats.get(channel.id) || 0,
@@ -73,7 +71,6 @@ const updateChannelUserCount = (channelId) => {
   const count = users.size;
   channelStats.set(channelId, count);
   
-  // Mettre à jour le canal personnalisé s'il existe
   if (customChannels.has(channelId)) {
     const channel = customChannels.get(channelId);
     channel.users = count;
@@ -113,7 +110,6 @@ io.on('connection', (socket) => {
     // Mettre à jour ou ajouter l'utilisateur
     const existingUser = connectedUsers.get(userData.username);
     if (existingUser) {
-      // Utilisateur existant - mettre à jour le socket
       user.connectedSince = existingUser.connectedSince;
       user.currentChannel = existingUser.currentChannel;
     }
@@ -137,7 +133,7 @@ io.on('connection', (socket) => {
     broadcastChannelStats();
   });
 
-  // 🔥 CRÉATION D'UN CANAL - Point clé pour la synchronisation
+  // CRÉATION D'UN CANAL - Point clé pour la synchronisation
   socket.on('create-channel', (channelData) => {
     console.log(`[CANAL] 🚀 Nouveau canal créé par ${socket.username}:`, channelData.name);
     
@@ -157,7 +153,7 @@ io.on('connection', (socket) => {
     console.log(`[CANAL] ✅ Canal ${channel.name} (${channel.id}) stocké sur le serveur`);
     console.log(`[CANAL] 📊 Total de canaux personnalisés: ${customChannels.size}`);
     
-    // 🔥 DIFFUSER À TOUS LES CLIENTS (sauf celui qui l'a créé)
+    // DIFFUSER À TOUS LES CLIENTS (sauf celui qui l'a créé)
     socket.broadcast.emit('channel-created', channel);
     console.log(`[CANAL] 📡 Canal diffusé à tous les autres clients`);
     
@@ -231,7 +227,6 @@ io.on('connection', (socket) => {
     socket.username = username;
     currentUser = username;
     
-    // Si pas déjà enregistré pour la sync, l'ajouter
     if (!connectedUsers.has(username)) {
       const user = {
         id: socket.id,
@@ -516,7 +511,6 @@ setInterval(() => {
     const channelUserCount = channelStats.get(channelId) || 0;
     const channelAge = Date.now() - new Date(channel.createdAt).getTime();
     
-    // Supprimer les canaux vides et anciens (sauf si autoDelete est false)
     if (channelUserCount === 0 && channelAge > oneHourAgo && channel.autoDelete !== false) {
       console.log(`[CLEANUP] Suppression du canal vide: ${channel.name} (${channelAge/1000/60} min d'âge)`);
       
@@ -540,7 +534,7 @@ setInterval(() => {
     broadcastChannelStats();
   }
   
-}, 10 * 60 * 1000); // Toutes les 10 minutes
+}, 10 * 60 * 1000);
 
 // Statistiques périodiques
 setInterval(() => {
@@ -591,12 +585,10 @@ process.on('SIGINT', () => {
 // Gestion des erreurs non capturées
 process.on('uncaughtException', (err) => {
   console.error('[SERVER] ❌ Erreur non capturée:', err);
-  // Ne pas arrêter le serveur pour une erreur simple
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[SERVER] ❌ Promesse rejetée non gérée:', reason);
-  // Ne pas arrêter le serveur pour une promesse rejetée
 });
 
 module.exports = { app, server, io };

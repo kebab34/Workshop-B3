@@ -1,4 +1,3 @@
-// src/components/ConnectionStatus.js
 import React from 'react';
 
 function ConnectionStatus({ status, partnerName }) {

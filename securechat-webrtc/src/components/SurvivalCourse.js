@@ -1,4 +1,3 @@
-// src/components/SurvivalCourse.js - Composant d'affichage des cours de survie
 import React, { useState } from 'react';
 import '../styles/SurvivalCourse.css';
 

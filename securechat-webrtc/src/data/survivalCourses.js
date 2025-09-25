@@ -1,6 +1,5 @@
-// src/data/survivalCourses.js - Base de données des cours de survie post-Ultron
-
 export const survivalCourses = [
+  // Cours 1: Eau potable
   {
     id: 1,
     title: "Trouver et purifier de l'eau",
@@ -158,7 +157,7 @@ export const survivalCourses = [
         explanation: "L'ébullition pendant 5 minutes élimine tous les microbes pathogènes."
       }
     ],
-    relatedCourses: [2, 3], // IDs des cours liés
+    relatedCourses: [2, 3],
     lastUpdated: "2025-09-25",
     author: "SecureLink Survival Team"
   },

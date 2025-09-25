@@ -1,4 +1,3 @@
-// src/components/MessageList.js
 import React from 'react';
 
 function MessageList({ messages, currentUser }) {
@@ -14,7 +13,7 @@ function MessageList({ messages, currentUser }) {
     const messageDate = new Date(timestamp);
     
     if (today.toDateString() === messageDate.toDateString()) {
-      return null; // Aujourd'hui, on affiche juste l'heure
+      return null;
     }
     
     return messageDate.toLocaleDateString('fr-FR', {
@@ -168,21 +167,6 @@ function MessageList({ messages, currentUser }) {
         </div>
       ) : (
         messages.map((message, index) => renderMessage(message, index))
-      )}
-      
-      {/* Indicateur de frappe (pour plus tard avec WebRTC) */}
-      {false && ( // Remplacer par une vraie condition
-        <div className="typing-indicator">
-          <div className="typing-content">
-            <span className="typing-user">Agent partenaire</span>
-            <span className="typing-text">tape...</span>
-            <div className="typing-dots">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

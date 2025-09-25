@@ -1,4 +1,3 @@
-// src/components/Chat.js - Version avec historique séparé par canal
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
@@ -26,7 +25,7 @@ function Chat({ username, channel }) {
       type,
       encrypted: type !== 'system',
       delivered: sender === username,
-      channelId: channel.id || channel.name // Associer le message au canal
+      channelId: channel.id || channel.name
     };
     
     setMessages(prev => [...prev, newMessage]);
@@ -38,7 +37,6 @@ function Chat({ username, channel }) {
         const savedMessages = JSON.parse(localStorage.getItem(storageKey) || '[]');
         savedMessages.push(newMessage);
         
-        // Limiter à 1000 messages max par canal
         if (savedMessages.length > 1000) {
           savedMessages.splice(0, savedMessages.length - 1000);
         }
@@ -57,7 +55,7 @@ function Chat({ username, channel }) {
       
       if (savedMessages.length > 0) {
         const loadedMessages = savedMessages
-          .filter(msg => msg.channelId === (channelData.id || channelData.name)) // Filtrer par canal
+          .filter(msg => msg.channelId === (channelData.id || channelData.name))
           .map(msg => ({
             ...msg,
             timestamp: new Date(msg.timestamp)
@@ -87,12 +85,10 @@ function Chat({ username, channel }) {
   const handleMessageReceived = useCallback((message) => {
     console.log('📨 [CHAT] Message reçu dans handleMessageReceived:', message);
     
-    // Si c'est un signal d'effacement, effacer aussi localement
     if (message.type === 'clear-history') {
       clearMessages();
       addMessage('🗑️ Historique effacé par mesure de sécurité', 'System', 'system', false);
     } else {
-      // Message normal - vérifier qu'il appartient au bon canal
       const messageChannelId = message.channelId || message.channel;
       const currentChannelId = channel.id || channel.name;
       
@@ -124,7 +120,6 @@ function Chat({ username, channel }) {
     connect,
     disconnect,
     joinChannel,
-    leaveChannel,
     sendMessage: sendWebRTCMessage
   } = useChannelWebRTC(username, handleMessageReceived, handleConnectionStatusChange);
 
@@ -134,7 +129,6 @@ function Chat({ username, channel }) {
     if (currentChannel) {
       const channelToRejoin = currentChannel;
       disconnect();
-      // Attendre un peu avant de reconnecter
       setTimeout(() => {
         joinChannel(channelToRejoin);
       }, 1000);
@@ -159,10 +153,8 @@ function Chat({ username, channel }) {
       channelUsers: channelUsers.length 
     });
 
-    // Ajouter immédiatement à notre interface avec l'ID du canal
     addMessage(text, username, type);
     
-    // Envoyer via le hook WebRTC avec info du canal
     if (connectionStatus === 'connected' && currentChannel) {
       console.log(`[DEBUG] Tentative d'envoi via hook WebRTC...`);
       
@@ -197,10 +189,8 @@ function Chat({ username, channel }) {
   // Fonction pour effacer l'historique du canal actuel
   const clearHistory = useCallback(() => {
     if (window.confirm(`Effacer l'historique du canal "${channel.name}" ? Cette action est irréversible.`)) {
-      // Effacer localement
       clearMessages();
       
-      // Si connecté, envoyer signal d'effacement à l'autre participant
       if (isConnected) {
         sendWebRTCMessage('clear-history', 'clear-history');
         addMessage(`🗑️ Historique du canal "${channel.name}" effacé pour tous les participants`, 'System', 'system', false);
@@ -214,15 +204,12 @@ function Chat({ username, channel }) {
   useEffect(() => {
     console.log(`[CHAT] Changement de canal vers: ${channel.name} (ID: ${channel.id})`);
     
-    // Charger l'historique du nouveau canal
     loadChannelHistory(channel);
     
-    // Message de bienvenue spécifique au canal
     setTimeout(() => {
       addMessage(`🛡️ Connexion au canal "${channel.name}" - Communications sécurisées activées`, 'System', 'system', false);
     }, 100);
     
-    // Connexion automatique unique avec support des canaux
     if (!hasAutoConnected) {
       setHasAutoConnected(true);
       setTimeout(async () => {
@@ -231,10 +218,8 @@ function Chat({ username, channel }) {
         try {
           console.log(`[DEBUG] Canal à rejoindre:`, channel);
           
-          // Se connecter au serveur d'abord
           await connect();
           
-          // Puis rejoindre le canal après un court délai
           setTimeout(async () => {
             console.log(`[DEBUG] Tentative de rejoin du canal:`, channel);
             const success = await joinChannel(channel);

@@ -1,4 +1,3 @@
-// src/components/SurvivalCoursesList.js - Liste des cours de survie disponibles
 import React, { useState } from 'react';
 import SurvivalCourse from './SurvivalCourse';
 import survivalCourses from '../data/survivalCourses';

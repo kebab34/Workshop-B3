@@ -1,9 +1,8 @@
-/* src/styles/Chat.css */
 .chat-container {
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 80px); /* Ajuster selon la hauteur du header */
+  height: calc(100vh - 80px);
 }
 
 /* Header du chat */

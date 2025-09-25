@@ -1,4 +1,3 @@
-// src/components/JoinChannelModal.js - Version corrigée
 import React, { useState, useEffect } from 'react';
 import '../styles/JoinChannelModal.css';
 
@@ -8,7 +7,6 @@ function JoinChannelModal({ isOpen, channel, onClose, onJoinChannel, username })
   const [error, setError] = useState('');
   const [attempts, setAttempts] = useState(0);
 
-  // Reset des états quand le modal change
   useEffect(() => {
     if (isOpen && channel) {
       setPassword('');
@@ -30,13 +28,11 @@ function JoinChannelModal({ isOpen, channel, onClose, onJoinChannel, username })
     setError('');
 
     try {
-      // Simuler une vérification de mot de passe
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       const isPasswordCorrect = await verifyChannelPassword(channel.id, password);
       
       if (isPasswordCorrect) {
-        // Rejoindre le canal avec succès
         await onJoinChannel(channel, password);
         handleClose();
       } else {
@@ -62,7 +58,6 @@ function JoinChannelModal({ isOpen, channel, onClose, onJoinChannel, username })
   };
 
   const handleClose = () => {
-    // Reset immédiat des états pour éviter les erreurs React
     setPassword('');
     setError('');
     setAttempts(0);
@@ -72,13 +67,12 @@ function JoinChannelModal({ isOpen, channel, onClose, onJoinChannel, username })
 
   // Fonction de vérification du mot de passe
   const verifyChannelPassword = async (channelId, inputPassword) => {
-    // Mots de passe de démonstration
     const validPasswords = {
       'demo123': true,
       'test': true,
       'password': true,
       'admin': true,
-      'ultron': true // Thématique !
+      'ultron': true
     };
     
     return validPasswords[inputPassword] || false;
@@ -119,7 +113,6 @@ function JoinChannelModal({ isOpen, channel, onClose, onJoinChannel, username })
     }
   };
 
-  // Render conditionnel sécurisé
   if (!isOpen || !channel) {
     return null;
   }
@@ -250,8 +243,6 @@ function JoinChannelModal({ isOpen, channel, onClose, onJoinChannel, username })
               </button>
             </div>
           </form>
-
-          {/* Aide pour la démo */}
           {process.env.NODE_ENV === 'development' && (
             <div className="demo-help">
               <div className="demo-title">💡 Aide démo :</div>

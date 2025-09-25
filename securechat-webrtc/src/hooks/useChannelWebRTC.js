@@ -1,4 +1,3 @@
-// src/hooks/useChannelWebRTC.js - Hook WebRTC avec support des canaux
 import { useState, useEffect, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
 
@@ -21,7 +20,6 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      // Serveur TURN public de secours (limité mais peut aider)
       { 
         urls: 'turn:openrelay.metered.ca:80',
         username: 'openrelayproject',
@@ -393,7 +391,6 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       socketRef.current.on('user-joined-channel', ({ username: userName, channelId }) => {
         console.log('[CHANNEL] Utilisateur rejoint le canal:', userName);
         if (userName !== username && currentChannel && currentChannel.id === channelId) {
-          // Créer une nouvelle connexion peer si on n'est pas déjà connecté
           if (!isConnected && peerConnectionRef.current?.signalingState === 'stable') {
             setTimeout(() => createOffer(), 1000);
           }

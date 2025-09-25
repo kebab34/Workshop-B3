@@ -1,4 +1,3 @@
-// src/components/CreateChannelModal.js - Version corrigée
 import React, { useState, useEffect } from 'react';
 import '../styles/CreateChannelModal.css';
 
@@ -17,7 +16,6 @@ function CreateChannelModal({ isOpen, onClose, onCreateChannel, existingChannels
   const [errors, setErrors] = useState({});
   const [isCreating, setIsCreating] = useState(false);
 
-  // Reset du formulaire quand le modal s'ouvre
   useEffect(() => {
     if (isOpen) {
       setFormData({
@@ -125,7 +123,6 @@ function CreateChannelModal({ isOpen, onClose, onCreateChannel, existingChannels
 
       await onCreateChannel(channelData);
       
-      // Fermer le modal après succès
       handleClose();
     } catch (error) {
       console.error('Erreur création canal:', error);
@@ -155,13 +152,11 @@ function CreateChannelModal({ isOpen, onClose, onCreateChannel, existingChannels
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     
-    // Nettoyer les erreurs au fur et à mesure
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: null }));
     }
   };
 
-  // Render conditionnel sécurisé
   if (!isOpen) {
     return null;
   }

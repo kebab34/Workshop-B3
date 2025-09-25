@@ -1,4 +1,3 @@
-// src/components/MessageInput.js
 import React, { useState, useRef, useEffect } from 'react';
 
 function MessageInput({ onSendMessage, disabled = false, connectionStatus }) {
@@ -20,7 +19,6 @@ function MessageInput({ onSendMessage, disabled = false, connectionStatus }) {
     { emoji: '😶', label: 'Silence' }
   ];
 
-  // Auto-resize du textarea
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea) {
@@ -29,7 +27,6 @@ function MessageInput({ onSendMessage, disabled = false, connectionStatus }) {
     }
   }, [message]);
 
-  // Focus automatique
   useEffect(() => {
     if (!disabled && inputRef.current) {
       inputRef.current.focus();
@@ -43,7 +40,6 @@ function MessageInput({ onSendMessage, disabled = false, connectionStatus }) {
       setMessage('');
       setIsComposing(false);
       
-      // Réinitialiser la hauteur du textarea
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
@@ -62,7 +58,6 @@ function MessageInput({ onSendMessage, disabled = false, connectionStatus }) {
     setMessage(value);
     setIsComposing(value.length > 0);
     
-    // TODO: Envoyer signal "en train de taper" via WebRTC
     if (value.length > 0 && !isComposing) {
       console.log('User started typing...');
     } else if (value.length === 0 && isComposing) {
@@ -99,9 +94,9 @@ function MessageInput({ onSendMessage, disabled = false, connectionStatus }) {
 
   const getCharacterCountColor = () => {
     const length = message.length;
-    if (length > 450) return '#ff4444'; // Rouge si proche de la limite
-    if (length > 400) return '#ffaa00'; // Orange si attention
-    return '#666'; // Gris normal
+    if (length > 450) return '#ff4444';
+    if (length > 400) return '#ffaa00';
+    return '#666';
   };
 
   return (
