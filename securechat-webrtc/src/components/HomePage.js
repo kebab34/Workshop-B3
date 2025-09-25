@@ -5,7 +5,8 @@ import CreateChannelModal from './CreateChannelModal';
 import JoinChannelModal from './JoinChannelModal';
 import '../styles/HomePage.css';
 
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:3001';
+
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://172.20.10.3:3001';
 
 function HomePage({ username, onJoinChannel, onViewCourses }) {
   const [availableChannels, setAvailableChannels] = useState([
