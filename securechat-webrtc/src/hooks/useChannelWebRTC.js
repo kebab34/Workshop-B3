@@ -14,22 +14,16 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
   const isInitiatorRef = useRef(false);
   const isConnectingRef = useRef(false);
 
-  // Configuration WebRTC avec serveurs STUN publics et TURN de secours
+  // 🏢 Configuration WebRTC
   const rtcConfig = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { 
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      }
-    ],
-    iceCandidatePoolSize: 10
+    iceServers: [],
+    
+    iceCandidatePoolSize: 3,
+    iceTransportPolicy: 'all', 
+    bundlePolicy: 'balanced',
+    rtcpMuxPolicy: 'require'
   };
 
-  // Mise à jour du statut de connexion
   const updateConnectionStatus = useCallback((status) => {
     setConnectionStatus(prevStatus => {
       if (prevStatus !== status) {
@@ -41,10 +35,9 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     });
   }, [onConnectionStatusChange]);
 
-  // Configuration du data channel
   const setupDataChannel = useCallback((channel) => {
     channel.onopen = () => {
-      console.log('[CHANNEL] Data channel ouvert');
+      console.log('🎉 [CHANNEL] Data channel ouvert - Mode LAN direct !');
       setIsConnected(true);
       updateConnectionStatus('connected');
     };
@@ -52,7 +45,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     channel.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        console.log('[CHANNEL] Message reçu:', message);
+        console.log('📨 [CHANNEL] Message reçu via WebRTC P2P (LAN):', message);
         onMessageReceived?.(message);
       } catch (err) {
         console.error('[CHANNEL] Erreur parsing message:', err);
@@ -60,24 +53,23 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     };
 
     channel.onclose = () => {
-      console.log('[CHANNEL] Data channel fermé');
+      console.log('❌ [CHANNEL] Data channel fermé');
       setIsConnected(false);
       updateConnectionStatus('disconnected');
     };
 
     channel.onerror = (error) => {
       console.error('[CHANNEL] Erreur data channel:', error);
-      setError('Erreur de communication');
+      setError('Erreur de communication P2P');
       updateConnectionStatus('error');
     };
 
     dataChannelRef.current = channel;
   }, [updateConnectionStatus, onMessageReceived]);
 
-  // Nettoyage des anciennes connexions
   const cleanupOldConnection = useCallback(() => {
     if (peerConnectionRef.current) {
-      console.log('[CHANNEL] Nettoyage ancienne connexion');
+      console.log('[CHANNEL] Nettoyage ancienne connexion P2P');
       try {
         peerConnectionRef.current.close();
       } catch (err) {
@@ -99,7 +91,6 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     setIsConnected(false);
   }, []);
 
-  // Création du peer connection
   const createPeerConnection = useCallback(() => {
     cleanupOldConnection();
     
@@ -108,7 +99,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
       pc.onicecandidate = (event) => {
         if (event.candidate && socketRef.current?.connected && currentChannel) {
-          console.log('[CHANNEL] Envoi candidat ICE');
+          console.log('🧊 [CHANNEL] Candidat ICE (LAN):', event.candidate.type, event.candidate.address);
           socketRef.current.emit('ice-candidate', {
             candidate: event.candidate,
             channelId: currentChannel.id
@@ -117,61 +108,59 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       };
 
       pc.onconnectionstatechange = () => {
-        console.log('[CHANNEL] Connection state:', pc.connectionState);
-        console.log('[CHANNEL] ICE Connection state:', pc.iceConnectionState);
-        console.log('[CHANNEL] ICE Gathering state:', pc.iceGatheringState);
+        console.log('🔗 [CHANNEL] Connection state:', pc.connectionState);
+        console.log('📡 [CHANNEL] ICE Connection state:', pc.iceConnectionState);
         
         switch (pc.connectionState) {
           case 'connected':
-            console.log('🎉 [CHANNEL] WebRTC Connexion établie !');
+            console.log('🚀 [CHANNEL] WebRTC P2P établi (réseau local) !');
             updateConnectionStatus('connected');
             setIsConnected(true);
             setError(null);
             break;
           case 'connecting':
-            console.log('🔄 [CHANNEL] Connexion WebRTC en cours...');
+            console.log('🔄 [CHANNEL] Connexion P2P en cours...');
             updateConnectionStatus('connecting');
             break;
           case 'disconnected':
-            console.log('❌ [CHANNEL] WebRTC Déconnecté');
+            console.log('⚠️ [CHANNEL] P2P Déconnecté temporairement');
             updateConnectionStatus('disconnected');
             setIsConnected(false);
             break;
           case 'failed':
-            console.log('💥 [CHANNEL] Échec WebRTC - Problème de NAT/Firewall probable');
+            console.log('💥 [CHANNEL] Échec P2P - Fallback vers Socket.IO');
             updateConnectionStatus('error');
             setIsConnected(false);
-            setError('Connexion WebRTC échouée - Vérifiez NAT/Firewall');
+            setError('Connexion P2P échouée - Utilisation serveur de secours');
             break;
           case 'closed':
-            console.log('🔒 [CHANNEL] WebRTC Fermé');
+            console.log('🔒 [CHANNEL] P2P Fermé');
             updateConnectionStatus('disconnected');
             setIsConnected(false);
             break;
           default:
-            console.log(`[CHANNEL] État de connexion non géré: ${pc.connectionState}`);
+            console.log(`[CHANNEL] État: ${pc.connectionState}`);
             break;
         }
       };
 
-      // Debug ICE state changes  
       pc.oniceconnectionstatechange = () => {
-        console.log(`[CHANNEL] ICE State: ${pc.iceConnectionState}`);
-        if (pc.iceConnectionState === 'failed') {
-          console.log('🚨 [CHANNEL] ICE Failed - Connexion directe impossible');
-          console.log('💡 [CHANNEL] Suggestion: Désactivez le firewall ou utilisez un serveur TURN');
+        console.log(`📊 [CHANNEL] ICE State: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'completed') {
+          console.log('✅ [CHANNEL] Connexion ICE optimale (réseau local)');
         }
       };
 
       pc.ondatachannel = (event) => {
         const channel = event.channel;
+        console.log('📬 [CHANNEL] Data channel reçu');
         setupDataChannel(channel);
       };
 
       return pc;
     } catch (err) {
       console.error('[CHANNEL] Erreur création PeerConnection:', err);
-      setError('Erreur de création de connexion');
+      setError('Erreur de création de connexion P2P');
       updateConnectionStatus('error');
       return null;
     }
@@ -179,14 +168,12 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
   // Envoi d'un message
   const sendMessage = useCallback((text, type = 'text') => {
-    console.log(`[CHANNEL] 🚀 Tentative d'envoi de message:`, { 
-      text, 
+    console.log(`[CHANNEL] 💬 Envoi message:`, { 
+      text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
       type,
       dataChannelState: dataChannelRef.current?.readyState,
       socketConnected: socketRef.current?.connected,
-      currentChannelId: currentChannel?.id,
-      hasDataChannel: !!dataChannelRef.current,
-      hasSocket: !!socketRef.current
+      mode: dataChannelRef.current?.readyState === 'open' ? 'P2P-LAN' : 'Socket.IO'
     });
 
     const message = {
@@ -198,40 +185,30 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       id: Date.now() + Math.random()
     };
 
-    // Essayer d'envoyer via WebRTC d'abord
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
       try {
         dataChannelRef.current.send(JSON.stringify(message));
-        console.log('[CHANNEL] ✅ Message envoyé via WebRTC:', message);
+        console.log('✅ [CHANNEL] Message envoyé via P2P LAN (ultra-rapide)');
         return true;
       } catch (err) {
-        console.error('[CHANNEL] ❌ Erreur WebRTC, fallback vers Socket.IO:', err);
+        console.error('❌ [CHANNEL] Erreur P2P, basculement Socket.IO:', err);
       }
-    } else {
-      console.log('[CHANNEL] 📡 WebRTC non disponible, utilisation Socket.IO directement');
     }
 
-    // Fallback via Socket.IO si WebRTC n'est pas disponible
     if (socketRef.current?.connected && currentChannel) {
       try {
-        console.log('[CHANNEL] 📤 Envoi via Socket.IO...', message);
+        console.log('📡 [CHANNEL] Envoi via Socket.IO (fallback)');
         socketRef.current.emit('send-message', message);
-        console.log('[CHANNEL] ✅ Message envoyé via Socket.IO:', message);
+        console.log('✅ [CHANNEL] Message envoyé via Socket.IO');
         return true;
       } catch (err) {
-        console.error('[CHANNEL] ❌ Erreur Socket.IO:', err);
+        console.error('❌ [CHANNEL] Erreur Socket.IO:', err);
         setError('Erreur d\'envoi');
         return false;
       }
-    } else {
-      console.error('[CHANNEL] ❌ Conditions non remplies:', {
-        socketConnected: socketRef.current?.connected,
-        hasCurrentChannel: !!currentChannel,
-        channelId: currentChannel?.id
-      });
     }
 
-    console.error('[CHANNEL] ❌ Aucun canal de communication disponible');
+    console.error('💀 [CHANNEL] Aucun canal de communication disponible');
     setError('Pas de connexion disponible');
     return false;
   }, [username, currentChannel]);
@@ -244,15 +221,16 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     }
 
     if (peerConnectionRef.current.signalingState !== 'stable') {
-      console.log(`[CHANNEL] Création d'offre ignorée - État: ${peerConnectionRef.current.signalingState}`);
+      console.log(`[CHANNEL] Offre ignorée - État: ${peerConnectionRef.current.signalingState}`);
       return;
     }
 
     try {
-      console.log(`[CHANNEL] Création d'une offre pour le canal ${currentChannel.name}`);
+      console.log(`🤝 [CHANNEL] Création offre P2P pour canal ${currentChannel.name}`);
       
       const dataChannel = peerConnectionRef.current.createDataChannel('messages', {
-        ordered: true
+        ordered: true,
+        maxRetransmits: 3
       });
       setupDataChannel(dataChannel);
 
@@ -266,10 +244,10 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       });
 
       isInitiatorRef.current = true;
-      console.log('[CHANNEL] Offre envoyée');
+      console.log('📤 [CHANNEL] Offre P2P envoyée');
     } catch (err) {
       console.error('[CHANNEL] Erreur création offre:', err);
-      setError('Erreur de connexion');
+      setError('Erreur de connexion P2P');
       updateConnectionStatus('error');
     }
   }, [username, currentChannel, setupDataChannel, updateConnectionStatus]);
@@ -281,11 +259,11 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
     try {
       if (peerConnectionRef.current.signalingState !== 'stable') {
-        console.log(`[CHANNEL] Offre ignorée - État incorrect: ${peerConnectionRef.current.signalingState}`);
+        console.log(`[CHANNEL] Offre ignorée - État: ${peerConnectionRef.current.signalingState}`);
         return;
       }
 
-      console.log(`[CHANNEL] Traitement de l'offre de ${from} dans canal ${channelId}`);
+      console.log(`📥 [CHANNEL] Traitement offre P2P de ${from}`);
       
       await peerConnectionRef.current.setRemoteDescription(offer);
       
@@ -299,7 +277,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
           channelId: channelId
         });
         
-        console.log('[CHANNEL] Réponse envoyée');
+        console.log('📤 [CHANNEL] Réponse P2P envoyée');
       }
     } catch (err) {
       console.error('[CHANNEL] Erreur traitement offre:', err);
@@ -313,7 +291,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
 
     try {
       if (peerConnectionRef.current.signalingState === 'have-local-offer') {
-        console.log(`[CHANNEL] Traitement de la réponse dans canal ${channelId}`);
+        console.log(`📥 [CHANNEL] Traitement réponse P2P`);
         await peerConnectionRef.current.setRemoteDescription(answer);
       }
     } catch (err) {
@@ -329,17 +307,16 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     try {
       const state = peerConnectionRef.current.signalingState;
       if (state === 'closed' || (state === 'stable' && !peerConnectionRef.current.remoteDescription)) {
-        console.log(`[CHANNEL] Candidat ICE ignoré - État: ${state}`);
         return;
       }
 
       if (peerConnectionRef.current.remoteDescription) {
         await peerConnectionRef.current.addIceCandidate(candidate);
-        console.log('[CHANNEL] Candidat ICE ajouté');
+        console.log('🧊 [CHANNEL] Candidat ICE ajouté (LAN)');
       }
     } catch (err) {
       if (!err.message.includes('Unknown ufrag')) {
-        console.error('[CHANNEL] Erreur ajout candidat ICE:', err);
+        console.error('[CHANNEL] Erreur candidat ICE:', err);
       }
     }
   }, [currentChannel]);
@@ -347,7 +324,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
   // Connexion au serveur
   const connect = useCallback(async () => {
     if (isConnectingRef.current || socketRef.current?.connected) {
-      console.log('[CHANNEL] Connexion déjà en cours ou établie');
+      console.log('[CHANNEL] Connexion déjà établie');
       return;
     }
 
@@ -356,11 +333,8 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       updateConnectionStatus('connecting');
       setError(null);
 
-      console.log('[CHANNEL] Découverte du serveur...');
-
       const serverUrl = 'http://172.20.10.3:3001';
-
-      console.log(`[CHANNEL] Connexion au serveur: ${serverUrl}`);
+      console.log(`🌐 [CHANNEL] Connexion serveur: ${serverUrl}`);
 
       socketRef.current = io(serverUrl, {
         transports: ['websocket'],
@@ -369,7 +343,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       });
 
       socketRef.current.on('connect', () => {
-        console.log('[CHANNEL] Connecté au serveur');
+        console.log('✅ [CHANNEL] Connecté au serveur signaling');
         isConnectingRef.current = false;
         
         socketRef.current.emit('register', username);
@@ -389,7 +363,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       });
 
       socketRef.current.on('user-joined-channel', ({ username: userName, channelId }) => {
-        console.log('[CHANNEL] Utilisateur rejoint le canal:', userName);
+        console.log('👋 [CHANNEL] Utilisateur rejoint:', userName);
         if (userName !== username && currentChannel && currentChannel.id === channelId) {
           if (!isConnected && peerConnectionRef.current?.signalingState === 'stable') {
             setTimeout(() => createOffer(), 1000);
@@ -398,39 +372,26 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       });
 
       socketRef.current.on('user-left-channel', ({ username: userName, channelId }) => {
-        console.log('[CHANNEL] Utilisateur quitte le canal:', userName);
+        console.log('👋 [CHANNEL] Utilisateur quitté:', userName);
         setChannelUsers(prev => prev.filter(user => user !== userName));
       });
 
       socketRef.current.on('channel-users', (users) => {
-        console.log('[CHANNEL] Utilisateurs du canal:', users);
+        console.log('👥 [CHANNEL] Utilisateurs du canal:', users);
         setChannelUsers(users);
       });
 
       socketRef.current.on('message-received', (message) => {
-        console.log('[CHANNEL] Message reçu via Socket.IO:', message);
-        console.log('[CHANNEL] 🔍 Vérification canal:', {
-          messageChannelId: message.channelId,
-          currentChannelId: currentChannel?.id,
-          hasCallback: !!onMessageReceived,
-          channelMatch: message.channelId === currentChannel?.id
-        });
+        console.log('📨 [CHANNEL] Message reçu via Socket.IO (fallback):', message);
         
-        // Accepter les messages si on a un callback (même si currentChannel est temporairement null)
         if (onMessageReceived && (message.channelId === currentChannel?.id || !currentChannel)) {
-          console.log('[CHANNEL] ✅ Message transmis à l\'interface');
+          console.log('✅ [CHANNEL] Message Socket.IO transmis à l\'interface');
           onMessageReceived(message);
-        } else {
-          console.log('[CHANNEL] ❌ Message ignoré:', {
-            hasCallback: !!onMessageReceived,
-            messageChannel: message.channelId,
-            currentChannel: currentChannel?.id
-          });
         }
       });
 
       socketRef.current.on('connect_error', (err) => {
-        console.error('[CHANNEL] Erreur connexion serveur:', err);
+        console.error('❌ [CHANNEL] Erreur connexion serveur:', err);
         isConnectingRef.current = false;
         setError('Serveur indisponible');
         updateConnectionStatus('error');
@@ -442,7 +403,7 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       setError('Erreur de connexion');
       updateConnectionStatus('error');
     }
-  }, [username, updateConnectionStatus, handleOffer, handleAnswer, handleIceCandidate, createOffer, currentChannel, isConnected]);
+  }, [username, updateConnectionStatus, handleOffer, handleAnswer, handleIceCandidate, createOffer, currentChannel, isConnected, onMessageReceived]);
 
   // Rejoindre un canal
   const joinChannel = useCallback(async (channel) => {
@@ -451,19 +412,15 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
       return false;
     }
 
-    console.log('[CHANNEL] Rejoindre le canal:', channel.name);
+    console.log('🚪 [CHANNEL] Rejoindre canal:', channel.name);
     
-    // Nettoyer l'ancienne connexion WebRTC
     cleanupOldConnection();
     
-    // Mettre à jour le canal actuel
     setCurrentChannel(channel);
     setChannelUsers([]);
     
-    // Créer une nouvelle connexion peer
     peerConnectionRef.current = createPeerConnection();
     
-    // Rejoindre le canal sur le serveur
     socketRef.current.emit('join-channel', {
       channelId: channel.id,
       channelName: channel.name
@@ -472,20 +429,23 @@ const useChannelWebRTC = (username, onMessageReceived, onConnectionStatusChange)
     return true;
   }, [cleanupOldConnection, createPeerConnection]);
 
-  // Quitter un canal
   const leaveChannel = useCallback(() => {
-    console.log('[CHANNEL] Quitter le canal');
+    console.log('🚪 [CHANNEL] Quitter le canal');
+    
+    if (socketRef.current?.connected && currentChannel) {
+      socketRef.current.emit('leave-channel');
+    }
     
     cleanupOldConnection();
     setCurrentChannel(null);
     setChannelUsers([]);
     setIsConnected(false);
     updateConnectionStatus('disconnected');
-  }, [cleanupOldConnection, updateConnectionStatus]);
+  }, [cleanupOldConnection, updateConnectionStatus, currentChannel]);
 
   // Déconnexion
   const disconnect = useCallback(() => {
-    console.log('[CHANNEL] Déconnexion...');
+    console.log('🔌 [CHANNEL] Déconnexion complète');
     
     cleanupOldConnection();
     
